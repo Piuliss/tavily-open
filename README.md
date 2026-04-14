@@ -199,8 +199,8 @@ For detailed Docker Profiles usage, see: [`DOCKER_PROFILES.md`](DOCKER_PROFILES.
 #### 1. Clone the Repository
 
 ```bash
-git clone https://github.com/Owoui/SearXNG-Crawl4AI.git
-cd SearXNG-Crawl4AI
+git clone https://github.com/jianjungki/tavily-open.git
+cd tavily-open
 ```
 
 #### 2. Create Virtual Environment
@@ -503,7 +503,7 @@ This project is licensed under the [MIT License](LICENSE)
 
 This project is built on the following excellent open-source projects:
 
-- **[SearCrawl](https://github.com/Owoui/SearXNG-Crawl4AI)** - The predecessor of this project, thanks for the original contributions
+- **[SearCrawl](https://github.com/jianjungki/tavily-open)** - The predecessor of this project, thanks for the original contributions
 - **[SearXNG](https://github.com/searxng/searxng)** - Privacy-respecting meta search engine
 - **[Crawl4AI](https://github.com/unclecode/crawl4ai)** - Web crawling library designed for AI
 - **[Jina Reader](https://github.com/jina-ai/reader)** - A fast and intelligent web reader service
@@ -514,8 +514,8 @@ Thanks to all developers who contributed to these projects!
 
 ## 📞 Contact
 
-- **Issues**: [GitHub Issues](https://github.com/Owoui/SearXNG-Crawl4AI/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/Owoui/SearXNG-Crawl4AI/discussions)
+- **Issues**: [GitHub Issues](https://github.com/jianjungki/tavily-open/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/jianjungki/tavily-open/discussions)
 
 ## 🗺️ Roadmap
 
