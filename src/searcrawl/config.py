@@ -61,6 +61,7 @@ CACHE_TTL_HOURS = int(os.getenv("CACHE_TTL_HOURS", "24"))
 SEARCH_CACHE_TTL_SECONDS = int(os.getenv("SEARCH_CACHE_TTL_SECONDS", "300"))
 
 # Search Engine Configuration
+SEARCH_PROVIDER = os.getenv("SEARCH_PROVIDER", "searxng").strip().lower()
 DISABLED_ENGINES = os.getenv(
     "DISABLED_ENGINES",
     "wikipedia__general,currency__general,wikidata__general,duckduckgo__general,"
@@ -69,6 +70,8 @@ DISABLED_ENGINES = os.getenv(
 )
 ENABLED_ENGINES = os.getenv("ENABLED_ENGINES", "baidu__general")
 SEARCH_LANGUAGE = os.getenv("SEARCH_LANGUAGE", "auto")
+BRAVE_SEARCH_API_BASE = os.getenv("BRAVE_SEARCH_API_BASE", "https://api.search.brave.com/res/v1")
+BRAVE_SEARCH_API_KEY = os.getenv("BRAVE_SEARCH_API_KEY", "").strip()
 
 # Anti-Crawl Configuration
 ANTI_CRAWL_ENABLED = os.getenv("ANTI_CRAWL_ENABLED", "true").lower() == "true"
@@ -137,6 +140,11 @@ def get_config_info() -> dict[str, Any]:
             "search_ttl_seconds": SEARCH_CACHE_TTL_SECONDS,
         },
         "search_engines": {"disabled": DISABLED_ENGINES, "enabled": ENABLED_ENGINES},
+        "search_provider": {
+            "default": SEARCH_PROVIDER,
+            "brave_api_base": BRAVE_SEARCH_API_BASE,
+            "brave_api_key_configured": bool(BRAVE_SEARCH_API_KEY),
+        },
         "anti_crawl": {
             "enabled": ANTI_CRAWL_ENABLED,
             "enable_proxy_rotation": ENABLE_PROXY_ROTATION,

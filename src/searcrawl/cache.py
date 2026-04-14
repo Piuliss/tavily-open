@@ -86,16 +86,26 @@ class CacheManager:
         cache_hash = hashlib.md5(cache_input).hexdigest()
         return f"crawl_cache:{cache_hash}"
 
-    def _generate_search_cache_key(self, query: str) -> str:
+    def _generate_search_cache_key(
+        self,
+        query: str,
+        request_fingerprint: Optional[dict[str, Any]] = None,
+    ) -> str:
         """Generate a cache key from a search query
 
         Args:
             query: The search query string
+            request_fingerprint: Optional normalized request metadata
 
         Returns:
             str: Generated cache key
         """
-        cache_input = f"search:{query}".encode()
+        normalized_fingerprint = json.dumps(
+            request_fingerprint or {},
+            ensure_ascii=False,
+            sort_keys=True,
+        )
+        cache_input = f"search:{query}:{normalized_fingerprint}".encode()
         cache_hash = hashlib.md5(cache_input).hexdigest()
         return f"search_cache:{cache_hash}"
 
@@ -105,11 +115,16 @@ class CacheManager:
         """Build ordered crawl cache keys for batched Redis operations."""
         return [(url, self._generate_cache_key(url, instruction)) for url in urls]
 
-    async def get_search_cache(self, query: str) -> Optional[dict[str, Any]]:
+    async def get_search_cache(
+        self,
+        query: str,
+        request_fingerprint: Optional[dict[str, Any]] = None,
+    ) -> Optional[dict[str, Any]]:
         """Get cached search result for a query
 
         Args:
             query: The search query to retrieve from cache
+            request_fingerprint: Optional normalized request metadata
 
         Returns:
             Dict or None: Cached result if found, None otherwise
@@ -119,7 +134,7 @@ class CacheManager:
             return None
 
         try:
-            cache_key = self._generate_search_cache_key(query)
+            cache_key = self._generate_search_cache_key(query, request_fingerprint)
             cached_data = await self.redis_client.get(cache_key)
 
             if cached_data:
@@ -134,12 +149,18 @@ class CacheManager:
             logger.warning(f"Error retrieving from search cache: {str(e)}")
             return None
 
-    async def set_search_cache(self, query: str, result: dict[str, Any]) -> bool:
+    async def set_search_cache(
+        self,
+        query: str,
+        result: dict[str, Any],
+        request_fingerprint: Optional[dict[str, Any]] = None,
+    ) -> bool:
         """Cache a search result for a query.
 
         Args:
             query: The search query being cached
             result: The search result to cache
+            request_fingerprint: Optional normalized request metadata
 
         Returns:
             bool: True if caching succeeded, False otherwise
@@ -149,8 +170,13 @@ class CacheManager:
             return False
 
         try:
-            cache_key = self._generate_search_cache_key(query)
-            cache_data = {"result": result, "cached_at": datetime.now().isoformat(), "query": query}
+            cache_key = self._generate_search_cache_key(query, request_fingerprint)
+            cache_data = {
+                "result": result,
+                "cached_at": datetime.now().isoformat(),
+                "query": query,
+                "request_fingerprint": request_fingerprint or {},
+            }
 
             await self.redis_client.setex(
                 cache_key, self.search_ttl_seconds, json.dumps(cache_data, ensure_ascii=False)

@@ -5,7 +5,7 @@ Sear-Crawl4AI - An open-source search and crawling tool based on SearXNG and Cra
 import asyncio
 import time
 from contextlib import asynccontextmanager
-from typing import Optional
+from typing import Literal, Optional
 
 import aiohttp
 import httpx
@@ -31,13 +31,15 @@ from searcrawl.config import (
     READER_MAX_CONCURRENCY,
     READER_TIMEOUT_SECONDS,
     REDIS_URL,
+    SEARCH_PROVIDER,
     SEARCH_CACHE_TTL_SECONDS,
     SEARXNG_TIMEOUT_SECONDS,
 )
 from searcrawl.crawler import WebCrawler
+from searcrawl.search_providers import SearchProviderRequest, create_search_provider
 
 cache_manager: Optional[CacheManager] = None
-searxng_client: Optional[httpx.AsyncClient] = None
+search_client: Optional[httpx.AsyncClient] = None
 page_client: Optional[httpx.AsyncClient] = None
 reader_session: Optional[aiohttp.ClientSession] = None
 reader_semaphore: Optional[asyncio.Semaphore] = None
@@ -48,7 +50,7 @@ crawler_service: Optional[WebCrawler] = None
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan context manager."""
-    global cache_manager, crawler_service, http_semaphore, page_client, reader_semaphore, reader_session, searxng_client
+    global cache_manager, crawler_service, http_semaphore, page_client, reader_semaphore, reader_session, search_client
 
     log_module.setup_logger("INFO")
     logger.info("Sear-Crawl4AI service starting...")
@@ -68,7 +70,7 @@ async def lifespan(app: FastAPI):
             logger.warning("Continuing without cache")
             cache_manager = None
 
-    searxng_client = httpx.AsyncClient(
+    search_client = httpx.AsyncClient(
         timeout=httpx.Timeout(SEARXNG_TIMEOUT_SECONDS),
         limits=httpx.Limits(max_keepalive_connections=20, max_connections=100),
     )
@@ -116,9 +118,9 @@ async def lifespan(app: FastAPI):
     if page_client:
         await page_client.aclose()
         page_client = None
-    if searxng_client:
-        await searxng_client.aclose()
-        searxng_client = None
+    if search_client:
+        await search_client.aclose()
+        search_client = None
     if cache_manager:
         await cache_manager.close()
         cache_manager = None
@@ -150,6 +152,8 @@ class SearchRequest(BaseModel):
     limit: int = DEFAULT_SEARCH_LIMIT
     disabled_engines: str = DISABLED_ENGINES
     enabled_engines: str = ENABLED_ENGINES
+    mode: Literal["crawl", "search"] = "crawl"
+    provider: str = SEARCH_PROVIDER
 
 
 class CrawlRequest(BaseModel):
@@ -185,6 +189,59 @@ async def crawl(request: CrawlRequest):
     result = await crawler_service.crawl_urls(request.urls, request.instruction)
     result.setdefault("timings_ms", {})["pool_wait"] = 0.0
     return result
+
+
+def build_search_cache_fingerprint(request: SearchRequest) -> dict[str, str | int]:
+    """Build a stable fingerprint for search cache isolation."""
+    return {
+        "provider": request.provider,
+        "mode": request.mode,
+        "limit": request.limit,
+        "disabled_engines": request.disabled_engines,
+        "enabled_engines": request.enabled_engines,
+    }
+
+
+def build_search_only_response(
+    provider_response,
+    search_total_ms: float,
+) -> dict:
+    """Build the response for search-only mode."""
+    effective_total_ms = max(search_total_ms, provider_response.request_ms)
+    timings_ms = {
+        "search_provider_request": provider_response.request_ms,
+        "search_total": round(effective_total_ms, 2),
+    }
+    if provider_response.provider == "searxng":
+        timings_ms["searxng_request"] = provider_response.request_ms
+
+    return {
+        "mode": "search",
+        "provider": provider_response.provider,
+        "results": [serialize_search_hit(hit) for hit in provider_response.hits],
+        "success_count": len(provider_response.hits),
+        "failed_urls": [],
+        "cache_hits": 0,
+        "newly_crawled": 0,
+        "timings_ms": timings_ms,
+    }
+
+
+def get_search_provider(provider_name: str, client: Optional[httpx.AsyncClient]):
+    """Resolve a search provider by name."""
+    return create_search_provider(provider_name, client=client)
+
+
+def serialize_search_hit(hit) -> dict[str, str]:
+    """Serialize a normalized hit from either a dataclass or a test double."""
+    if hasattr(hit, "to_dict"):
+        return hit.to_dict()
+    return {
+        "url": hit.url,
+        "title": hit.title,
+        "snippet": hit.snippet,
+        "provider": hit.provider,
+    }
 
 
 @app.get("/cache/stats")
@@ -257,15 +314,16 @@ async def search(request: SearchRequest):
         HTTPException: Raised when an error occurs during search or crawling
     """
     global cache_manager
-    global searxng_client
+    global search_client
     search_started = time.perf_counter()
     try:
         # Add status feedback
         logger.info(f"Starting search: {request.query}")
+        cache_fingerprint = build_search_cache_fingerprint(request)
 
         # Check cache for search results
         if cache_manager:
-            cached_result = await cache_manager.get_search_cache(request.query)
+            cached_result = await cache_manager.get_search_cache(request.query, cache_fingerprint)
             if cached_result:
                 logger.info(f"Search cache hit for query: {request.query}")
                 cached_result.setdefault("timings_ms", {})["search_total"] = round(
@@ -274,23 +332,32 @@ async def search(request: SearchRequest):
                 )
                 return cached_result
 
-        # Call SearXNG search engine (now async)
-        response = await WebCrawler.make_searxng_request(
-            query=request.query,
-            limit=request.limit,
-            disabled_engines=request.disabled_engines,
-            enabled_engines=request.enabled_engines,
-            client=searxng_client,
+        provider = get_search_provider(request.provider, search_client)
+        provider_response = await provider.search(
+            SearchProviderRequest(
+                query=request.query,
+                limit=request.limit,
+                provider=request.provider,
+                disabled_engines=request.disabled_engines,
+                enabled_engines=request.enabled_engines,
+            )
         )
 
-        # Check search results
-        results = response.get("results", [])
-        if not results:
+        if not provider_response.hits:
             logger.warning("No search results found")
             raise HTTPException(status_code=404, detail="No search results found")
 
+        if request.mode == "search":
+            search_result = build_search_only_response(
+                provider_response=provider_response,
+                search_total_ms=(time.perf_counter() - search_started) * 1000,
+            )
+            if cache_manager:
+                await cache_manager.set_search_cache(request.query, search_result, cache_fingerprint)
+            return search_result
+
         # Limit result count and extract URLs
-        urls = [result["url"] for result in results[: request.limit] if "url" in result]
+        urls = [hit.url for hit in provider_response.hits]
         if not urls:
             logger.warning("No valid URLs found")
             raise HTTPException(status_code=404, detail="No valid URLs found")
@@ -299,14 +366,20 @@ async def search(request: SearchRequest):
 
         # Call crawl function to process URLs
         crawl_result = await crawl(CrawlRequest(urls=urls, instruction=request.query))
+        crawl_result["search_provider"] = provider_response.provider
+        crawl_result.setdefault("timings_ms", {})["search_provider_request"] = (
+            provider_response.request_ms
+        )
+        if provider_response.provider == "searxng":
+            crawl_result["timings_ms"]["searxng_request"] = provider_response.request_ms
         crawl_result.setdefault("timings_ms", {})["search_total"] = round(
-            (time.perf_counter() - search_started) * 1000,
+            max((time.perf_counter() - search_started) * 1000, provider_response.request_ms),
             2,
         )
 
         # Cache the search result
         if cache_manager:
-            await cache_manager.set_search_cache(request.query, crawl_result)
+            await cache_manager.set_search_cache(request.query, crawl_result, cache_fingerprint)
 
         return crawl_result
     except HTTPException:
