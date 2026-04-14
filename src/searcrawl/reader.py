@@ -1,22 +1,25 @@
 import asyncio
+from typing import Any, Dict, Optional
+from urllib.parse import quote
+
 import aiohttp
-from aiohttp import ClientTimeout
-from typing import Optional, Dict, Any
-from .config import READER_URL, READER_API_KEY
+
+from .config import READER_API_KEY, READER_TIMEOUT_SECONDS, READER_URL
 from .logger import logger
 
-async def fetch_with_reader(url: str) -> Optional[Dict[str, Any]]:
-    """
-    Asynchronously fetches the content of a URL using the Jina Reader service.
 
-    Args:
-        url (str): The URL to fetch.
+def build_reader_api_url(url: str, reader_url: str = READER_URL) -> str:
+    """Build a Reader API URL with a safely encoded target URL."""
+    return f"{reader_url.rstrip('/')}/{quote(url, safe='')}"
 
-    Returns:
-        Optional[Dict[str, Any]]: A dictionary containing the fetched content and metadata,
-                                     or None if the fetch failed.
-    """
-    reader_api_url = f"{READER_URL}/{url}"
+
+async def _fetch_with_session(
+    session: aiohttp.ClientSession,
+    url: str,
+    timeout_seconds: float,
+) -> Optional[Dict[str, Any]]:
+    """Fetch a URL using a provided aiohttp session."""
+    reader_api_url = build_reader_api_url(url)
     headers = {
         "Accept": "application/json",
         "X-Respond-With": "markdown",
@@ -25,28 +28,66 @@ async def fetch_with_reader(url: str) -> Optional[Dict[str, Any]]:
         headers["Authorization"] = f"Bearer {READER_API_KEY}"
 
     try:
-        async with aiohttp.ClientSession() as session:
-            async with session.get(reader_api_url, headers=headers, timeout=aiohttp.ClientTimeout(total=30)) as response:
-                if response.status == 200:
-                    content = await response.text()
-                    if content:
-                        logger.info(f"Successfully fetched content for {url} with Jina Reader.")
-                        return {"content": content, "reference": url}
-                    else:
-                        logger.warning(f"Jina Reader returned no content for {url}.")
-                        return None
-                else:
-                    error_text = await response.text()
-                    logger.error(
-                        f"Failed to fetch {url} with Jina Reader. Status: {response.status}, Response: {error_text}"
-                    )
-                    return None
+        async with session.get(
+            reader_api_url,
+            headers=headers,
+            timeout=aiohttp.ClientTimeout(total=timeout_seconds),
+        ) as response:
+            if response.status == 200:
+                content = await response.text()
+                if content:
+                    logger.debug(f"Successfully fetched content for {url} with Reader.")
+                    return {"content": content, "reference": url}
+
+                logger.warning(f"Reader returned no content for {url}.")
+                return None
+
+            error_text = await response.text()
+            logger.error(
+                f"Failed to fetch {url} with Reader. Status: {response.status}, Response: {error_text}"
+            )
+            return None
     except asyncio.TimeoutError:
-        logger.error(f"Timeout error when fetching {url} with Jina Reader.")
+        logger.error(f"Timeout error when fetching {url} with Reader.")
         return None
     except aiohttp.ClientError as e:
-        logger.error(f"AIOHTTP client error when fetching {url} with Jina Reader: {e}")
+        logger.error(f"AIOHTTP client error when fetching {url} with Reader: {e}")
         return None
     except Exception as e:
-        logger.error(f"An unexpected error occurred when fetching {url} with Jina Reader: {e}")
+        logger.error(f"An unexpected error occurred when fetching {url} with Reader: {e}")
         return None
+
+
+async def fetch_with_reader(
+    url: str,
+    session: Optional[aiohttp.ClientSession] = None,
+    semaphore: Optional[asyncio.Semaphore] = None,
+    timeout_seconds: float = READER_TIMEOUT_SECONDS,
+) -> Optional[Dict[str, Any]]:
+    """
+    Asynchronously fetches the content of a URL using the Reader service.
+
+    Args:
+        url (str): The URL to fetch.
+        session: Optional shared aiohttp session for connection reuse.
+        semaphore: Optional semaphore to cap concurrent Reader requests.
+        timeout_seconds: Per-request timeout.
+
+    Returns:
+        Optional[Dict[str, Any]]: A dictionary containing the fetched content and metadata,
+                                     or None if the fetch failed.
+    """
+    async def _run_request(request_session: aiohttp.ClientSession) -> Optional[Dict[str, Any]]:
+        if semaphore is None:
+            return await _fetch_with_session(request_session, url, timeout_seconds)
+
+        async with semaphore:
+            return await _fetch_with_session(request_session, url, timeout_seconds)
+
+    if session is not None:
+        return await _run_request(session)
+
+    async with aiohttp.ClientSession(
+        timeout=aiohttp.ClientTimeout(total=timeout_seconds)
+    ) as owned_session:
+        return await _run_request(owned_session)

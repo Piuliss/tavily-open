@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Configuration Module - Loads configuration from environment variables
 
@@ -7,7 +6,8 @@ default values when environment variables are not set.
 """
 
 import os
-from typing import Dict, Any
+from typing import Any, Dict
+
 from dotenv import load_dotenv
 from loguru import logger
 
@@ -29,17 +29,21 @@ API_PORT = int(os.getenv("API_PORT", "3000"))
 READER_ENABLED = os.getenv("READER_ENABLED", "false").lower() == "true"
 READER_URL = os.getenv("READER_URL", "http://reader:3000")
 READER_API_KEY = os.getenv("READER_API_KEY", "")
+READER_TIMEOUT_SECONDS = float(os.getenv("READER_TIMEOUT_SECONDS", "30"))
+READER_MAX_CONCURRENCY = int(os.getenv("READER_MAX_CONCURRENCY", "20"))
 
 # Crawler Configuration
 DEFAULT_SEARCH_LIMIT = int(os.getenv("DEFAULT_SEARCH_LIMIT", "10"))
 CONTENT_FILTER_THRESHOLD = float(os.getenv("CONTENT_FILTER_THRESHOLD", "0.6"))
 WORD_COUNT_THRESHOLD = int(os.getenv("WORD_COUNT_THRESHOLD", "10"))
 CRAWLER_POOL_SIZE = int(os.getenv("CRAWLER_POOL_SIZE", "4"))
+SEARXNG_TIMEOUT_SECONDS = float(os.getenv("SEARXNG_TIMEOUT_SECONDS", "15"))
 
 # Cache Configuration
 CACHE_ENABLED = os.getenv("CACHE_ENABLED", "true").lower() == "true"
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 CACHE_TTL_HOURS = int(os.getenv("CACHE_TTL_HOURS", "24"))
+SEARCH_CACHE_TTL_SECONDS = int(os.getenv("SEARCH_CACHE_TTL_SECONDS", "300"))
 
 # Search Engine Configuration
 DISABLED_ENGINES = os.getenv(
@@ -90,12 +94,22 @@ def get_config_info() -> Dict[str, Any]:
         },
         "reader": {
             "enabled": READER_ENABLED,
-            "url": READER_URL
+            "url": READER_URL,
+            "timeout_seconds": READER_TIMEOUT_SECONDS,
+            "max_concurrency": READER_MAX_CONCURRENCY,
         },
         "crawler": {
             "default_search_limit": DEFAULT_SEARCH_LIMIT,
             "content_filter_threshold": CONTENT_FILTER_THRESHOLD,
-            "word_count_threshold": WORD_COUNT_THRESHOLD
+            "word_count_threshold": WORD_COUNT_THRESHOLD,
+            "pool_size": CRAWLER_POOL_SIZE,
+            "searxng_timeout_seconds": SEARXNG_TIMEOUT_SECONDS,
+        },
+        "cache": {
+            "enabled": CACHE_ENABLED,
+            "redis_url": REDIS_URL,
+            "crawl_ttl_hours": CACHE_TTL_HOURS,
+            "search_ttl_seconds": SEARCH_CACHE_TTL_SECONDS,
         },
         "search_engines": {
             "disabled": DISABLED_ENGINES,
