@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 SearCrawl - An open-source search and crawling tool based on SearXNG and Crawl4AI
 

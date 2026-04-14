@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Logger Module - Provides unified logging functionality
 
@@ -6,9 +5,10 @@ This module provides unified logging functionality for the entire application
 using loguru library.
 """
 
-from typing import Optional
-from loguru import logger
 import sys
+from typing import Optional
+
+from loguru import logger
 
 # Default log format
 DEFAULT_LOG_FORMAT = (
@@ -29,13 +29,10 @@ def setup_logger(level: str = "INFO", log_format: Optional[str] = None) -> None:
     """
     # Remove default handler
     logger.remove()
-    
+
     # Add custom handler with format
     logger.add(
-        sys.stdout,
-        format=log_format or DEFAULT_LOG_FORMAT,
-        level=level.upper(),
-        colorize=True
+        sys.stdout, format=log_format or DEFAULT_LOG_FORMAT, level=level.upper(), colorize=True
     )
 
 

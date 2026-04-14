@@ -13,6 +13,7 @@ def test_get_config_info():
     assert "searxng" in config
     assert "api" in config
     assert "crawler" in config
+    assert "browser" in config
     assert "cache" in config
     assert "reader" in config
     assert "search_engines" in config
@@ -33,6 +34,18 @@ def test_get_config_info():
     assert "word_count_threshold" in config["crawler"]
     assert "pool_size" in config["crawler"]
     assert "searxng_timeout_seconds" in config["crawler"]
+    assert "http_extractor_enabled" in config["crawler"]
+    assert "http_extractor_timeout_seconds" in config["crawler"]
+    assert "http_extractor_max_concurrency" in config["crawler"]
+    assert "http_extractor_min_content_length" in config["crawler"]
+
+    # Check browser config structure
+    assert "backend" in config["browser"]
+    assert "browserless_ws_url" in config["browser"]
+    assert "remote_timeout_seconds" in config["browser"]
+    assert "remote_max_concurrency" in config["browser"]
+    assert "local_fallback_enabled" in config["browser"]
+    assert "local_max_concurrency" in config["browser"]
 
     # Check cache config structure
     assert "enabled" in config["cache"]
@@ -45,6 +58,7 @@ def test_get_config_info():
     assert "url" in config["reader"]
     assert "timeout_seconds" in config["reader"]
     assert "max_concurrency" in config["reader"]
+    assert "min_content_length" in config["reader"]
 
     # Check search engines config structure
     assert "disabled" in config["search_engines"]
@@ -62,6 +76,16 @@ def test_config_types():
     assert isinstance(config["crawler"]["content_filter_threshold"], float)
     assert isinstance(config["crawler"]["pool_size"], int)
     assert isinstance(config["crawler"]["searxng_timeout_seconds"], float)
+    assert isinstance(config["crawler"]["http_extractor_enabled"], bool)
+    assert isinstance(config["crawler"]["http_extractor_timeout_seconds"], float)
+    assert isinstance(config["crawler"]["http_extractor_max_concurrency"], int)
+    assert isinstance(config["crawler"]["http_extractor_min_content_length"], int)
     assert isinstance(config["cache"]["search_ttl_seconds"], int)
+    assert isinstance(config["browser"]["backend"], str)
+    assert isinstance(config["browser"]["remote_timeout_seconds"], float)
+    assert isinstance(config["browser"]["remote_max_concurrency"], int)
+    assert isinstance(config["browser"]["local_fallback_enabled"], bool)
+    assert isinstance(config["browser"]["local_max_concurrency"], int)
     assert isinstance(config["reader"]["timeout_seconds"], float)
     assert isinstance(config["reader"]["max_concurrency"], int)
+    assert isinstance(config["reader"]["min_content_length"], int)

@@ -6,7 +6,7 @@ default values when environment variables are not set.
 """
 
 import os
-from typing import Any, Dict
+from typing import Any
 
 from dotenv import load_dotenv
 from loguru import logger
@@ -26,11 +26,12 @@ API_HOST = os.getenv("API_HOST", "0.0.0.0")
 API_PORT = int(os.getenv("API_PORT", "3000"))
 
 # Reader Service Configuration
-READER_ENABLED = os.getenv("READER_ENABLED", "false").lower() == "true"
+READER_ENABLED = os.getenv("READER_ENABLED", "true").lower() == "true"
 READER_URL = os.getenv("READER_URL", "http://reader:3000")
 READER_API_KEY = os.getenv("READER_API_KEY", "")
 READER_TIMEOUT_SECONDS = float(os.getenv("READER_TIMEOUT_SECONDS", "30"))
 READER_MAX_CONCURRENCY = int(os.getenv("READER_MAX_CONCURRENCY", "20"))
+READER_MIN_CONTENT_LENGTH = int(os.getenv("READER_MIN_CONTENT_LENGTH", "300"))
 
 # Crawler Configuration
 DEFAULT_SEARCH_LIMIT = int(os.getenv("DEFAULT_SEARCH_LIMIT", "10"))
@@ -38,6 +39,20 @@ CONTENT_FILTER_THRESHOLD = float(os.getenv("CONTENT_FILTER_THRESHOLD", "0.6"))
 WORD_COUNT_THRESHOLD = int(os.getenv("WORD_COUNT_THRESHOLD", "10"))
 CRAWLER_POOL_SIZE = int(os.getenv("CRAWLER_POOL_SIZE", "4"))
 SEARXNG_TIMEOUT_SECONDS = float(os.getenv("SEARXNG_TIMEOUT_SECONDS", "15"))
+HTTP_EXTRACTOR_ENABLED = os.getenv("HTTP_EXTRACTOR_ENABLED", "true").lower() == "true"
+HTTP_EXTRACTOR_TIMEOUT_SECONDS = float(os.getenv("HTTP_EXTRACTOR_TIMEOUT_SECONDS", "10"))
+HTTP_EXTRACTOR_MAX_CONCURRENCY = int(os.getenv("HTTP_EXTRACTOR_MAX_CONCURRENCY", "20"))
+HTTP_EXTRACTOR_MIN_CONTENT_LENGTH = int(os.getenv("HTTP_EXTRACTOR_MIN_CONTENT_LENGTH", "300"))
+
+# Browser Fallback Configuration
+BROWSER_BACKEND = os.getenv("BROWSER_BACKEND", "local").lower()
+BROWSERLESS_WS_URL = os.getenv("BROWSERLESS_WS_URL", "").strip()
+BROWSER_REMOTE_TIMEOUT_SECONDS = float(os.getenv("BROWSER_REMOTE_TIMEOUT_SECONDS", "45"))
+BROWSER_REMOTE_MAX_CONCURRENCY = int(os.getenv("BROWSER_REMOTE_MAX_CONCURRENCY", "2"))
+BROWSER_LOCAL_FALLBACK_ENABLED = (
+    os.getenv("BROWSER_LOCAL_FALLBACK_ENABLED", "true").lower() == "true"
+)
+BROWSER_LOCAL_MAX_CONCURRENCY = int(os.getenv("BROWSER_LOCAL_MAX_CONCURRENCY", "1"))
 
 # Cache Configuration
 CACHE_ENABLED = os.getenv("CACHE_ENABLED", "true").lower() == "true"
@@ -50,7 +65,7 @@ DISABLED_ENGINES = os.getenv(
     "DISABLED_ENGINES",
     "wikipedia__general,currency__general,wikidata__general,duckduckgo__general,"
     "google__general,lingva__general,qwant__general,startpage__general,"
-    "dictzone__general,mymemory translated__general,brave__general"
+    "dictzone__general,mymemory translated__general,brave__general",
 )
 ENABLED_ENGINES = os.getenv("ENABLED_ENGINES", "baidu__general")
 SEARCH_LANGUAGE = os.getenv("SEARCH_LANGUAGE", "auto")
@@ -75,7 +90,7 @@ PROXY_LIST = os.getenv("PROXY_LIST", "").strip()
 CUSTOM_USER_AGENTS = os.getenv("CUSTOM_USER_AGENTS", "").strip()
 
 
-def get_config_info() -> Dict[str, Any]:
+def get_config_info() -> dict[str, Any]:
     """Returns a dictionary of current configuration information
 
     Returns:
@@ -86,17 +101,15 @@ def get_config_info() -> Dict[str, Any]:
             "host": SEARXNG_HOST,
             "port": SEARXNG_PORT,
             "base_path": SEARXNG_BASE_PATH,
-            "api_base": SEARXNG_API_BASE
+            "api_base": SEARXNG_API_BASE,
         },
-        "api": {
-            "host": API_HOST,
-            "port": API_PORT
-        },
+        "api": {"host": API_HOST, "port": API_PORT},
         "reader": {
             "enabled": READER_ENABLED,
             "url": READER_URL,
             "timeout_seconds": READER_TIMEOUT_SECONDS,
             "max_concurrency": READER_MAX_CONCURRENCY,
+            "min_content_length": READER_MIN_CONTENT_LENGTH,
         },
         "crawler": {
             "default_search_limit": DEFAULT_SEARCH_LIMIT,
@@ -104,6 +117,18 @@ def get_config_info() -> Dict[str, Any]:
             "word_count_threshold": WORD_COUNT_THRESHOLD,
             "pool_size": CRAWLER_POOL_SIZE,
             "searxng_timeout_seconds": SEARXNG_TIMEOUT_SECONDS,
+            "http_extractor_enabled": HTTP_EXTRACTOR_ENABLED,
+            "http_extractor_timeout_seconds": HTTP_EXTRACTOR_TIMEOUT_SECONDS,
+            "http_extractor_max_concurrency": HTTP_EXTRACTOR_MAX_CONCURRENCY,
+            "http_extractor_min_content_length": HTTP_EXTRACTOR_MIN_CONTENT_LENGTH,
+        },
+        "browser": {
+            "backend": BROWSER_BACKEND,
+            "browserless_ws_url": BROWSERLESS_WS_URL,
+            "remote_timeout_seconds": BROWSER_REMOTE_TIMEOUT_SECONDS,
+            "remote_max_concurrency": BROWSER_REMOTE_MAX_CONCURRENCY,
+            "local_fallback_enabled": BROWSER_LOCAL_FALLBACK_ENABLED,
+            "local_max_concurrency": BROWSER_LOCAL_MAX_CONCURRENCY,
         },
         "cache": {
             "enabled": CACHE_ENABLED,
@@ -111,10 +136,7 @@ def get_config_info() -> Dict[str, Any]:
             "crawl_ttl_hours": CACHE_TTL_HOURS,
             "search_ttl_seconds": SEARCH_CACHE_TTL_SECONDS,
         },
-        "search_engines": {
-            "disabled": DISABLED_ENGINES,
-            "enabled": ENABLED_ENGINES
-        },
+        "search_engines": {"disabled": DISABLED_ENGINES, "enabled": ENABLED_ENGINES},
         "anti_crawl": {
             "enabled": ANTI_CRAWL_ENABLED,
             "enable_proxy_rotation": ENABLE_PROXY_ROTATION,
@@ -127,6 +149,8 @@ def get_config_info() -> Dict[str, Any]:
             "proxy_rotation_mode": PROXY_ROTATION_MODE,
             "use_mobile_agents": USE_MOBILE_AGENTS,
             "proxy_count": len(PROXY_LIST.split(",")) if PROXY_LIST else 0,
-            "custom_user_agents_count": len(CUSTOM_USER_AGENTS.split(",")) if CUSTOM_USER_AGENTS else 0
-        }
+            "custom_user_agents_count": (
+                len(CUSTOM_USER_AGENTS.split(",")) if CUSTOM_USER_AGENTS else 0
+            ),
+        },
     }

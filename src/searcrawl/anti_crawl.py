@@ -10,13 +10,14 @@ import random
 import time
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 
 from loguru import logger
 
 
 class ProxyType(Enum):
     """Proxy type enumeration"""
+
     HTTP = "http"
     HTTPS = "https"
     SOCKS5 = "socks5"
@@ -25,6 +26,7 @@ class ProxyType(Enum):
 @dataclass
 class ProxyConfig:
     """Proxy configuration"""
+
     url: str
     proxy_type: ProxyType = ProxyType.HTTP
     username: Optional[str] = None
@@ -60,7 +62,7 @@ class UserAgentPool:
         "Mozilla/5.0 (iPad; CPU OS 17_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Mobile/15E148 Safari/604.1",
     ]
 
-    def __init__(self, custom_agents: Optional[List[str]] = None, use_mobile: bool = False):
+    def __init__(self, custom_agents: Optional[list[str]] = None, use_mobile: bool = False):
         """Initialize User-Agent pool
 
         Args:
@@ -87,7 +89,7 @@ class UserAgentPool:
         """Get a random User-Agent from the pool"""
         return random.choice(self.pool)
 
-    def get_all(self) -> List[str]:
+    def get_all(self) -> list[str]:
         """Get all User-Agents in the pool"""
         return self.pool.copy()
 
@@ -95,7 +97,7 @@ class UserAgentPool:
 class ProxyPool:
     """Proxy pool for IP rotation"""
 
-    def __init__(self, proxies: Optional[List[ProxyConfig]] = None):
+    def __init__(self, proxies: Optional[list[ProxyConfig]] = None):
         """Initialize proxy pool
 
         Args:
@@ -110,7 +112,7 @@ class ProxyPool:
         self.proxies.append(proxy)
         logger.info(f"Proxy added: {proxy.url}")
 
-    def add_proxies(self, proxies: List[ProxyConfig]) -> None:
+    def add_proxies(self, proxies: list[ProxyConfig]) -> None:
         """Add multiple proxies to the pool"""
         self.proxies.extend(proxies)
         logger.info(f"Added {len(proxies)} proxies to pool")
@@ -129,7 +131,7 @@ class ProxyPool:
         self.current_index = (self.current_index + 1) % len(self.proxies)
         return proxy
 
-    def get_all(self) -> List[ProxyConfig]:
+    def get_all(self) -> list[ProxyConfig]:
         """Get all proxies in the pool"""
         return self.proxies.copy()
 
@@ -142,7 +144,7 @@ class RequestHeaderGenerator:
     """Generate realistic request headers"""
 
     @staticmethod
-    def generate_headers(user_agent: str, include_referer: bool = True) -> Dict[str, str]:
+    def generate_headers(user_agent: str, include_referer: bool = True) -> dict[str, str]:
         """Generate realistic request headers
 
         Args:
@@ -155,11 +157,13 @@ class RequestHeaderGenerator:
         headers = {
             "User-Agent": user_agent,
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-            "Accept-Language": random.choice([
-                "en-US,en;q=0.9",
-                "zh-CN,zh;q=0.9",
-                "en-US,en;q=0.9,zh-CN;q=0.8",
-            ]),
+            "Accept-Language": random.choice(
+                [
+                    "en-US,en;q=0.9",
+                    "zh-CN,zh;q=0.9",
+                    "en-US,en;q=0.9,zh-CN;q=0.8",
+                ]
+            ),
             "Accept-Encoding": "gzip, deflate, br",
             "DNT": "1",
             "Connection": "keep-alive",
@@ -171,12 +175,14 @@ class RequestHeaderGenerator:
         }
 
         if include_referer:
-            headers["Referer"] = random.choice([
-                "https://www.google.com/",
-                "https://www.bing.com/",
-                "https://www.baidu.com/",
-                "https://www.duckduckgo.com/",
-            ])
+            headers["Referer"] = random.choice(
+                [
+                    "https://www.google.com/",
+                    "https://www.bing.com/",
+                    "https://www.baidu.com/",
+                    "https://www.duckduckgo.com/",
+                ]
+            )
 
         return headers
 
@@ -194,9 +200,9 @@ class AntiCrawlConfig:
         min_delay: float = 0.5,
         max_delay: float = 3.0,
         proxy_rotation_mode: str = "random",  # "random" or "sequential"
-        custom_user_agents: Optional[List[str]] = None,
+        custom_user_agents: Optional[list[str]] = None,
         use_mobile_agents: bool = False,
-        proxies: Optional[List[ProxyConfig]] = None,
+        proxies: Optional[list[ProxyConfig]] = None,
     ):
         """Initialize anti-crawl configuration
 
@@ -224,8 +230,7 @@ class AntiCrawlConfig:
 
         # Initialize User-Agent pool
         self.user_agent_pool = UserAgentPool(
-            custom_agents=custom_user_agents,
-            use_mobile=use_mobile_agents
+            custom_agents=custom_user_agents, use_mobile=use_mobile_agents
         )
 
         # Initialize proxy pool
@@ -233,9 +238,13 @@ class AntiCrawlConfig:
 
         logger.info("AntiCrawlConfig initialized")
 
-    def get_headers(self) -> Dict[str, str]:
+    def get_headers(self) -> dict[str, str]:
         """Get request headers with anti-crawl measures applied"""
-        user_agent = self.user_agent_pool.get_random() if self.enable_user_agent_rotation else self.user_agent_pool.get_all()[0]
+        user_agent = (
+            self.user_agent_pool.get_random()
+            if self.enable_user_agent_rotation
+            else self.user_agent_pool.get_all()[0]
+        )
 
         if self.enable_random_headers or self.enable_browser_headers:
             return RequestHeaderGenerator.generate_headers(user_agent)
@@ -275,7 +284,7 @@ class AntiCrawlConfig:
             logger.debug(f"Applying async request delay: {delay:.2f}s")
             await asyncio.sleep(delay)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert configuration to dictionary"""
         return {
             "enable_proxy_rotation": self.enable_proxy_rotation,

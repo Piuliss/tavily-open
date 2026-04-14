@@ -1,37 +1,33 @@
 """
-Crawler Module - Provides web crawling and content processing functionality
-
-This module provides web crawling and content processing functionality.
-It encapsulates the AsyncWebCrawler from crawl4ai library and provides
-high-level methods for crawling web pages and processing their content.
+Crawler Module - Provides web crawling and content processing functionality.
 """
 
 import asyncio
 import re
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 
 import aiohttp
 import httpx
 import markdown
 from bs4 import BeautifulSoup
-from crawl4ai import (
-    AsyncWebCrawler,
-    BrowserConfig,
-    CacheMode,
-    CrawlerRunConfig,
-)
+from crawl4ai import CacheMode, CrawlerRunConfig
 from crawl4ai.content_filter_strategy import PruningContentFilter
 from crawl4ai.markdown_generation_strategy import DefaultMarkdownGenerator
 from fastapi import HTTPException
 from loguru import logger
 
 from .anti_crawl import AntiCrawlConfig, ProxyConfig, ProxyType
+from .browser import BrowserBackend
 from .cache import CacheManager
-
-# Import configuration
 from .config import (
     ANTI_CRAWL_ENABLED,
+    BROWSER_BACKEND,
+    BROWSER_LOCAL_FALLBACK_ENABLED,
+    BROWSER_LOCAL_MAX_CONCURRENCY,
+    BROWSER_REMOTE_MAX_CONCURRENCY,
+    BROWSER_REMOTE_TIMEOUT_SECONDS,
+    BROWSERLESS_WS_URL,
     CONTENT_FILTER_THRESHOLD,
     CUSTOM_USER_AGENTS,
     DISABLED_ENGINES,
@@ -41,11 +37,15 @@ from .config import (
     ENABLE_REQUEST_DELAY,
     ENABLE_USER_AGENT_ROTATION,
     ENABLED_ENGINES,
+    HTTP_EXTRACTOR_ENABLED,
+    HTTP_EXTRACTOR_MIN_CONTENT_LENGTH,
+    HTTP_EXTRACTOR_TIMEOUT_SECONDS,
     MAX_REQUEST_DELAY,
     MIN_REQUEST_DELAY,
     PROXY_LIST,
     PROXY_ROTATION_MODE,
     READER_ENABLED,
+    READER_MIN_CONTENT_LENGTH,
     READER_TIMEOUT_SECONDS,
     SEARCH_LANGUAGE,
     SEARXNG_BASE_PATH,
@@ -55,11 +55,12 @@ from .config import (
     USE_MOBILE_AGENTS,
     WORD_COUNT_THRESHOLD,
 )
+from .extractor import fetch_with_http_extractor
 from .reader import fetch_with_reader
 
 
 class WebCrawler:
-    """Web crawler class that encapsulates web crawling and content processing functionality"""
+    """Web crawler class that encapsulates web crawling and content processing functionality."""
 
     def __init__(
         self,
@@ -67,23 +68,35 @@ class WebCrawler:
         anti_crawl_config: Optional[AntiCrawlConfig] = None,
         reader_session: Optional[aiohttp.ClientSession] = None,
         reader_semaphore: Optional[asyncio.Semaphore] = None,
-    ):
-        """Initialize crawler instance
-
-        Args:
-            cache_manager: Optional cache manager instance for caching crawl results
-            anti_crawl_config: Optional anti-crawl configuration for evasion techniques
-        """
-        self.crawler: Optional[AsyncWebCrawler] = None
+        page_client: Optional[httpx.AsyncClient] = None,
+        http_semaphore: Optional[asyncio.Semaphore] = None,
+    ) -> None:
+        self.crawler = None
         self.cache_manager = cache_manager
         self.anti_crawl_config = anti_crawl_config or self._create_default_anti_crawl_config()
         self.reader_session = reader_session
         self.reader_semaphore = reader_semaphore
+        self.page_client = page_client
+        self.http_semaphore = http_semaphore
+        self.remote_browser_backend = BrowserBackend(
+            name="remote",
+            anti_crawl_config=self.anti_crawl_config,
+            enabled=BROWSER_BACKEND in {"remote", "hybrid"} and bool(BROWSERLESS_WS_URL),
+            cdp_url=BROWSERLESS_WS_URL,
+            max_concurrency=BROWSER_REMOTE_MAX_CONCURRENCY,
+        )
+        self.local_browser_backend = BrowserBackend(
+            name="local",
+            anti_crawl_config=self.anti_crawl_config,
+            enabled=BROWSER_BACKEND in {"local", "hybrid"} and BROWSER_LOCAL_FALLBACK_ENABLED,
+            max_concurrency=BROWSER_LOCAL_MAX_CONCURRENCY,
+            install_local_browser=True,
+        )
         logger.info("Initializing WebCrawler instance")
         logger.info(f"Anti-crawl configuration: {self.anti_crawl_config.to_dict()}")
 
     def _create_default_anti_crawl_config(self) -> AntiCrawlConfig:
-        """Create default anti-crawl configuration from environment variables"""
+        """Create default anti-crawl configuration from environment variables."""
         if not ANTI_CRAWL_ENABLED:
             logger.info("Anti-crawl features disabled")
             return AntiCrawlConfig(
@@ -91,10 +104,9 @@ class WebCrawler:
                 enable_user_agent_rotation=False,
                 enable_request_delay=False,
                 enable_random_headers=False,
-                enable_browser_headers=False
+                enable_browser_headers=False,
             )
 
-        # Parse proxy list
         proxies = []
         if PROXY_LIST:
             for proxy_str in PROXY_LIST.split(","):
@@ -103,9 +115,7 @@ class WebCrawler:
                     continue
 
                 try:
-                    # Parse proxy URL format: http://user:pass@host:port or http://host:port
                     if "@" in proxy_str:
-                        # Has authentication
                         parts = proxy_str.split("://")
                         if len(parts) == 2:
                             protocol = parts[0]
@@ -114,26 +124,28 @@ class WebCrawler:
                                 auth = auth_and_host[0].split(":")
                                 host = auth_and_host[1]
                                 if len(auth) == 2:
-                                    proxies.append(ProxyConfig(
-                                        url=host,
-                                        proxy_type=ProxyType(protocol),
-                                        username=auth[0],
-                                        password=auth[1]
-                                    ))
+                                    proxies.append(
+                                        ProxyConfig(
+                                            url=host,
+                                            proxy_type=ProxyType(protocol),
+                                            username=auth[0],
+                                            password=auth[1],
+                                        )
+                                    )
                     else:
-                        # No authentication
                         parts = proxy_str.split("://")
                         if len(parts) == 2:
                             protocol = parts[0]
                             host = parts[1]
-                            proxies.append(ProxyConfig(
-                                url=host,
-                                proxy_type=ProxyType(protocol)
-                            ))
-                except Exception as e:
-                    logger.warning(f"Failed to parse proxy: {proxy_str}, error: {e}")
+                            proxies.append(
+                                ProxyConfig(
+                                    url=host,
+                                    proxy_type=ProxyType(protocol),
+                                )
+                            )
+                except Exception as exc:
+                    logger.warning(f"Failed to parse proxy: {proxy_str}, error: {exc}")
 
-        # Parse custom user agents
         custom_agents = []
         if CUSTOM_USER_AGENTS:
             custom_agents = [ua.strip() for ua in CUSTOM_USER_AGENTS.split(",") if ua.strip()]
@@ -149,107 +161,38 @@ class WebCrawler:
             proxy_rotation_mode=PROXY_ROTATION_MODE,
             custom_user_agents=custom_agents,
             use_mobile_agents=USE_MOBILE_AGENTS,
-            proxies=proxies
+            proxies=proxies,
         )
 
     async def initialize(self) -> None:
-        """Initialize AsyncWebCrawler instance
-
-        Must be called before using the crawler
-        """
-        # Build browser config with anti-crawl settings
-        if ANTI_CRAWL_ENABLED:
-            # Get anti-crawl headers
-            headers = self.anti_crawl_config.get_headers()
-
-            # Get proxy if enabled
-            proxy = self.anti_crawl_config.get_proxy()
-
-            # Add browser arguments to hide automation
-            extra_args = [
-                "--disable-blink-features=AutomationControlled",  # Hide automation
-                "--disable-dev-shm-usage",
-                "--no-sandbox",
-                "--disable-setuid-sandbox",
-                "--disable-web-security",
-                "--disable-features=IsolateOrigins,site-per-process",
-            ]
-
-            # Configure browser with anti-crawl settings
-            browser_config = BrowserConfig(
-                headless=True,
-                verbose=False,
-                extra_args=extra_args,
-                headers=headers if headers else {},
-                proxy=proxy if proxy else ""
-            )
-        else:
-            # Configure browser without anti-crawl settings
-            browser_config = BrowserConfig(headless=True, verbose=False)
-
-        # Initialize crawler
-        self.crawler = await AsyncWebCrawler(config=browser_config).__aenter__()
-        logger.info("AsyncWebCrawler initialization completed with anti-crawl features")
+        """Retained for compatibility; browser backends are initialized lazily."""
+        return None
 
     async def close(self) -> None:
-        """Close crawler instance and release resources"""
-        if self.crawler:
-            await self.crawler.__aexit__(None, None, None)
-            logger.info("AsyncWebCrawler closed")
+        """Close any owned resources."""
+        await self.remote_browser_backend.close()
+        await self.local_browser_backend.close()
 
     @staticmethod
     def markdown_to_text_regex(markdown_str: str) -> str:
-        """Convert Markdown text to plain text using regular expressions
-
-        Args:
-            markdown_str: Markdown formatted text
-
-        Returns:
-            str: Converted plain text
-        """
-        # Remove heading symbols
-        text = re.sub(r'#+\s*', '', markdown_str)
-
-        # Remove links and images
-        text = re.sub(r'\[([^\]]+)\]\([^\)]+\)', r'\1', text)
-
-        # Remove bold, italic, and other emphasis markers
-        text = re.sub(r'(\*\*|__)(.*?)\1', r'\2', text)
-        text = re.sub(r'(\*|_)(.*?)\1', r'\2', text)
-
-        # Remove list markers
-        text = re.sub(r'^[\*\-\+]\s*', '', text, flags=re.MULTILINE)
-
-        # Remove code blocks
-        text = re.sub(r'`{3}.*?`{3}', '', text, flags=re.DOTALL)
-        text = re.sub(r'`(.*?)`', r'\1', text)
-
-        # Remove quote blocks
-        text = re.sub(r'^>\s*', '', text, flags=re.MULTILINE)
-
+        """Convert Markdown text to plain text using regular expressions."""
+        text = re.sub(r"#+\s*", "", markdown_str)
+        text = re.sub(r"\[([^\]]+)\]\([^\)]+\)", r"\1", text)
+        text = re.sub(r"(\*\*|__)(.*?)\1", r"\2", text)
+        text = re.sub(r"(\*|_)(.*?)\1", r"\2", text)
+        text = re.sub(r"^[\*\-\+]\s*", "", text, flags=re.MULTILINE)
+        text = re.sub(r"`{3}.*?`{3}", "", text, flags=re.DOTALL)
+        text = re.sub(r"`(.*?)`", r"\1", text)
+        text = re.sub(r"^>\s*", "", text, flags=re.MULTILINE)
         return text.strip()
 
     @staticmethod
     def markdown_to_text(markdown_str: str) -> str:
-        """Convert Markdown text to plain text using markdown and BeautifulSoup libraries
-
-        Args:
-            markdown_str: Markdown formatted text
-
-        Returns:
-            str: Converted plain text
-        """
-        html = markdown.markdown(markdown_str, extensions=['fenced_code'])
-        # Extract plain text using BeautifulSoup
+        """Convert Markdown text to plain text using markdown and BeautifulSoup."""
+        html = markdown.markdown(markdown_str, extensions=["fenced_code"])
         soup = BeautifulSoup(html, "html.parser")
-
-        text = soup.get_text(separator="\n")  # Preserve paragraph line breaks
-
-        # Clean up extra blank lines
-        cleaned_text = "\n".join([
-            line.strip() for line in text.split("\n") if line.strip()
-        ])
-
+        text = soup.get_text(separator="\n")
+        cleaned_text = "\n".join(line.strip() for line in text.split("\n") if line.strip())
         return cleaned_text
 
     @classmethod
@@ -258,7 +201,7 @@ class WebCrawler:
         return cls.markdown_to_text_regex(cls.markdown_to_text(markdown_str))
 
     @classmethod
-    def process_result_content(cls, result: Dict[str, str]) -> Dict[str, str]:
+    def process_result_content(cls, result: dict[str, str]) -> dict[str, str]:
         """Convert a crawl result into the response payload."""
         plain_text = cls.convert_markdown_to_plain_text(result["content"])
         return {
@@ -274,43 +217,29 @@ class WebCrawler:
         enabled_engines: str = ENABLED_ENGINES,
         client: Optional[httpx.AsyncClient] = None,
     ) -> dict:
-        """Send search request to SearXNG
-
-        Args:
-            query: Search query string
-            limit: Limit on number of results to return
-            disabled_engines: List of disabled search engines, comma-separated
-            enabled_engines: List of enabled search engines, comma-separated
-
-        Returns:
-            dict: Search results returned by SearXNG
-
-        Raises:
-            Exception: Raised when request fails
-        """
+        """Send search request to SearXNG."""
         owns_client = client is None
         request_started = time.perf_counter()
         try:
             form_data = {
-                'q': query,
-                'format': 'json',
-                'language': SEARCH_LANGUAGE,
-                'time_range': 'week',
-                'safesearch': '2',
-                'pageno': '1',
-                'category_general': '1'
+                "q": query,
+                "format": "json",
+                "language": SEARCH_LANGUAGE,
+                "time_range": "week",
+                "safesearch": "2",
+                "pageno": "1",
+                "category_general": "1",
             }
 
             headers = {
-                'Cookie': f'disabled_engines={disabled_engines};enabled_engines={enabled_engines};method=POST',
-                'User-Agent': 'Sear-Crawl4AI/1.0.0',
-                'Accept': '*/*',
-                'Host': f'{SEARXNG_HOST}:{SEARXNG_PORT}',
-                'Connection': 'keep-alive',
+                "Cookie": f"disabled_engines={disabled_engines};enabled_engines={enabled_engines};method=POST",
+                "User-Agent": "Sear-Crawl4AI/1.0.0",
+                "Accept": "*/*",
+                "Host": f"{SEARXNG_HOST}:{SEARXNG_PORT}",
+                "Connection": "keep-alive",
             }
 
             url = f"http://{SEARXNG_HOST}:{SEARXNG_PORT}{SEARXNG_BASE_PATH}"
-
             if client is None:
                 client = httpx.AsyncClient(timeout=httpx.Timeout(SEARXNG_TIMEOUT_SECONDS))
 
@@ -321,250 +250,196 @@ class WebCrawler:
                 f"SearXNG request completed in {(time.perf_counter() - request_started) * 1000:.2f}ms"
             )
             return response.json()
-        except httpx.HTTPStatusError as e:
-            logger.error(f"SearXNG request failed with status {e.response.status_code}: {e.response.text}")
-            raise Exception(f"Search request failed: {e.response.text}") from e
-        except Exception as e:
-            logger.error(f"SearXNG request failed: {str(e)}")
-            raise Exception(f"Search request failed: {str(e)}") from e
+        except httpx.HTTPStatusError as exc:
+            logger.error(
+                f"SearXNG request failed with status {exc.response.status_code}: {exc.response.text}"
+            )
+            raise Exception(f"Search request failed: {exc.response.text}") from exc
+        except Exception as exc:
+            logger.error(f"SearXNG request failed: {str(exc)}")
+            raise Exception(f"Search request failed: {str(exc)}") from exc
         finally:
             if owns_client and client is not None:
                 await client.aclose()
 
-    async def crawl_urls(self, urls: List[str], instruction: str) -> Dict[str, Any]:
-        """Crawl multiple URLs and process content
+    def _create_browser_run_config(self) -> CrawlerRunConfig:
+        md_generator = DefaultMarkdownGenerator(
+            content_filter=PruningContentFilter(threshold=CONTENT_FILTER_THRESHOLD),
+            options={
+                "ignore_links": True,
+                "ignore_images": True,
+                "escape_html": False,
+            },
+        )
+        return CrawlerRunConfig(
+            word_count_threshold=WORD_COUNT_THRESHOLD,
+            exclude_external_links=True,
+            remove_overlay_elements=True,
+            excluded_tags=["img", "header", "footer", "iframe", "nav"],
+            process_iframes=True,
+            markdown_generator=md_generator,
+            cache_mode=CacheMode.BYPASS,
+            page_timeout=int(BROWSER_REMOTE_TIMEOUT_SECONDS * 1000),
+        )
 
-        Args:
-            urls: List of URLs to crawl
-            instruction: Crawling instruction, typically a search query
+    @staticmethod
+    def _merge_stage_results(
+        urls: list[str],
+        stage_results: list[Optional[dict[str, str]]],
+    ) -> tuple[list[dict[str, str]], list[str]]:
+        successful_results: list[dict[str, str]] = []
+        pending_urls: list[str] = []
+        for url, result in zip(urls, stage_results):
+            if result:
+                successful_results.append(result)
+            else:
+                pending_urls.append(url)
+        return successful_results, pending_urls
 
-        Returns:
-            Dict[str, Any]: Dictionary containing processed content, success count, and failed URLs
+    async def _run_http_stage(self, urls: list[str]) -> tuple[list[dict[str, str]], list[str]]:
+        if not urls or not HTTP_EXTRACTOR_ENABLED or self.page_client is None:
+            return [], urls
 
-        Raises:
-            HTTPException: Raised when all URL crawls fail
-        """
+        tasks = [
+            fetch_with_http_extractor(
+                url,
+                client=self.page_client,
+                semaphore=self.http_semaphore,
+                timeout_seconds=HTTP_EXTRACTOR_TIMEOUT_SECONDS,
+                min_content_length=HTTP_EXTRACTOR_MIN_CONTENT_LENGTH,
+            )
+            for url in urls
+        ]
+        stage_results = await asyncio.gather(*tasks)
+        return self._merge_stage_results(urls, stage_results)
+
+    async def _run_reader_stage(self, urls: list[str]) -> tuple[list[dict[str, str]], list[str]]:
+        if not urls or not READER_ENABLED:
+            return [], urls
+
+        tasks = [
+            fetch_with_reader(
+                url,
+                session=self.reader_session,
+                semaphore=self.reader_semaphore,
+                timeout_seconds=READER_TIMEOUT_SECONDS,
+                min_content_length=READER_MIN_CONTENT_LENGTH,
+            )
+            for url in urls
+        ]
+        stage_results = await asyncio.gather(*tasks)
+        return self._merge_stage_results(urls, stage_results)
+
+    async def _run_browser_stage(
+        self,
+        backend: BrowserBackend,
+        urls: list[str],
+    ) -> tuple[list[dict[str, str]], list[str]]:
+        if not urls:
+            return [], urls
+
+        if ANTI_CRAWL_ENABLED and self.anti_crawl_config.enable_request_delay:
+            await self.anti_crawl_config.apply_delay_async()
+
+        return await backend.fetch_urls(urls, self._create_browser_run_config())
+
+    async def crawl_urls(self, urls: list[str], instruction: str) -> dict[str, Any]:
+        """Crawl multiple URLs and process content."""
         total_started = time.perf_counter()
         try:
-            # Check if crawler has been initialized
-            if not self.crawler:
-                if READER_ENABLED:
-                    logger.debug("Reader mode enabled, skipping browser auto-initialization")
-                else:
-                    logger.warning("Crawler not initialized, auto-initializing")
-                    await self.initialize()
-
-            # Check cache first if cache manager is available
-            cached_results = []
-            urls_to_process = []
+            cached_results: list[dict[str, str]] = []
+            pending_urls: list[str] = []
             cache_lookup_ms = 0.0
-            fetch_ms = 0.0
             text_processing_ms = 0.0
             cache_write_ms = 0.0
+            timings_ms = {
+                "cache_lookup": 0.0,
+                "fast_http": 0.0,
+                "reader": 0.0,
+                "remote_browser": 0.0,
+                "local_browser": 0.0,
+                "text_processing": 0.0,
+                "cache_write": 0.0,
+            }
+            stage_counts = {
+                "fast_path_hits": 0,
+                "reader_hits": 0,
+                "remote_browser_hits": 0,
+                "local_browser_fallback_hits": 0,
+            }
 
             if self.cache_manager and self.cache_manager.is_available():
                 logger.info(f"Checking cache for {len(urls)} URLs")
                 cache_lookup_started = time.perf_counter()
                 cache_hits = await self.cache_manager.get_batch(urls, instruction)
                 cache_lookup_ms = (time.perf_counter() - cache_lookup_started) * 1000
+                timings_ms["cache_lookup"] = round(cache_lookup_ms, 2)
 
                 for url in urls:
                     cached_data = cache_hits.get(url)
                     if cached_data:
-                        cached_results.append({
-                            "content": cached_data.get("content"),
-                            "reference": cached_data.get("reference")
-                        })
-                        logger.info(f"Cache hit for URL: {url}")
+                        cached_results.append(
+                            {
+                                "content": cached_data.get("content"),
+                                "reference": cached_data.get("reference"),
+                            }
+                        )
                     else:
-                        urls_to_process.append(url)
-
-                logger.info(f"Cache hits: {len(cached_results)}, URLs to process: {len(urls_to_process)}")
+                        pending_urls.append(url)
             else:
-                urls_to_process = urls
-                logger.info("Cache not available, processing all URLs")
+                pending_urls = urls.copy()
 
-            # If all URLs are cached, return cached results
-            if not urls_to_process:
-                logger.info("All URLs found in cache, returning cached results")
+            if not pending_urls:
                 return {
                     "results": cached_results,
                     "success_count": len(cached_results),
                     "failed_urls": [],
-                    "cache_hits": len(cached_results)
+                    "cache_hits": len(cached_results),
+                    "newly_crawled": 0,
+                    **stage_counts,
+                    "timings_ms": {
+                        **timings_ms,
+                        "total": round((time.perf_counter() - total_started) * 1000, 2),
+                    },
                 }
 
-            all_results = []
-            failed_urls = []
+            all_results: list[dict[str, str]] = []
 
-            all_results = []
-            failed_urls = []
+            stage_started = time.perf_counter()
+            http_results, pending_urls = await self._run_http_stage(pending_urls)
+            timings_ms["fast_http"] = round((time.perf_counter() - stage_started) * 1000, 2)
+            stage_counts["fast_path_hits"] = len(http_results)
+            all_results.extend(http_results)
 
-            if READER_ENABLED:
-                # --- Jina Reader Path ---
-                logger.info(f"Using Jina Reader service for {len(urls_to_process)} URLs")
-                fetch_started = time.perf_counter()
-                tasks = [
-                    fetch_with_reader(
-                        url,
-                        session=self.reader_session,
-                        semaphore=self.reader_semaphore,
-                        timeout_seconds=READER_TIMEOUT_SECONDS,
-                    )
-                    for url in urls_to_process
-                ]
-                reader_results = await asyncio.gather(*tasks)
-                fetch_ms = (time.perf_counter() - fetch_started) * 1000
+            stage_started = time.perf_counter()
+            reader_results, pending_urls = await self._run_reader_stage(pending_urls)
+            timings_ms["reader"] = round((time.perf_counter() - stage_started) * 1000, 2)
+            stage_counts["reader_hits"] = len(reader_results)
+            all_results.extend(reader_results)
 
-                for result in reader_results:
-                    if result:
-                        all_results.append(result)
-                    # In a strict either/or setup, we don't fallback, so we just log failures.
-                    # The failed URLs will be collected at the end.
+            stage_started = time.perf_counter()
+            remote_results, pending_urls = await self._run_browser_stage(
+                self.remote_browser_backend,
+                pending_urls,
+            )
+            timings_ms["remote_browser"] = round((time.perf_counter() - stage_started) * 1000, 2)
+            stage_counts["remote_browser_hits"] = len(remote_results)
+            all_results.extend(remote_results)
 
-            else:
-                # --- Crawl4AI Path ---
-                urls_to_crawl = urls_to_process
-                logger.info(f"Using Crawl4AI for {len(urls_to_crawl)} URLs")
+            stage_started = time.perf_counter()
+            local_results, pending_urls = await self._run_browser_stage(
+                self.local_browser_backend,
+                pending_urls,
+            )
+            timings_ms["local_browser"] = round((time.perf_counter() - stage_started) * 1000, 2)
+            stage_counts["local_browser_fallback_hits"] = len(local_results)
+            all_results.extend(local_results)
 
-                # Configure Markdown generator
-                md_generator = DefaultMarkdownGenerator(
-                    content_filter=PruningContentFilter(threshold=CONTENT_FILTER_THRESHOLD),
-                    options={
-                        "ignore_links": True,
-                        "ignore_images": True,
-                        "escape_html": False,
-                    }
-                )
-
-                # Configure crawler run parameters
-                run_config = CrawlerRunConfig(
-                    word_count_threshold=WORD_COUNT_THRESHOLD,
-                    exclude_external_links=True,
-                    remove_overlay_elements=True,
-                    excluded_tags=['img', 'header', 'footer', 'iframe', 'nav'],
-                    process_iframes=True,
-                    markdown_generator=md_generator,
-                    cache_mode=CacheMode.BYPASS
-                )
-
-                logger.info(f"Starting to crawl URLs: {', '.join(urls_to_crawl)}")
-
-                # Apply anti-crawl delay before crawling
-                if ANTI_CRAWL_ENABLED and self.anti_crawl_config.enable_request_delay:
-                    await self.anti_crawl_config.apply_delay_async()
-
-                # Ensure crawler is initialized
-                if not self.crawler:
-                    raise RuntimeError("Crawler not initialized")
-
-                # Crawl URLs and get results
-                fetch_started = time.perf_counter()
-                crawl_result = await self.crawler.arun_many(urls=urls_to_crawl, config=run_config)
-                fetch_ms = (time.perf_counter() - fetch_started) * 1000
-
-                # Convert to list if it's an async generator
-                results: list = []
-                if hasattr(crawl_result, '__aiter__'):
-                    async for result in crawl_result:  # type: ignore
-                        results.append(result)
-                else:
-                    results = list(crawl_result) if crawl_result else []  # type: ignore
-
-                # Create a list to store crawl results from all successful URLs
-                retry_urls = []
-
-                # First crawl attempt processing
-                for i, result in enumerate(results):
-                    try:
-                        if result is None:
-                            logger.debug(f"URL crawl result is None: {urls_to_crawl[i]}")
-                            retry_urls.append(urls_to_crawl[i])
-                            continue
-
-                        if not hasattr(result, 'success'):
-                            logger.debug(f"URL crawl result missing success attribute: {urls_to_crawl[i]}")
-                            retry_urls.append(urls_to_crawl[i])
-                            continue
-
-                        if result.success:
-                            if not hasattr(result, 'markdown') or not hasattr(result.markdown, 'fit_markdown'):
-                                logger.debug(f"URL crawl result missing markdown content: {urls_to_crawl[i]}")
-                                retry_urls.append(urls_to_crawl[i])
-                                continue
-
-                            # Add successful result's markdown content to the list
-                            all_results.append({
-                                "content": result.markdown.fit_markdown,
-                                "reference": urls_to_crawl[i]
-                            })
-                            logger.info(f"Successfully crawled URL: {urls_to_crawl[i]}")
-                        else:
-                            logger.debug(f"URL crawl failed: {urls_to_crawl[i]}")
-                            retry_urls.append(urls_to_crawl[i])
-                    except Exception as e:
-                        # Record URLs that need retry
-                        retry_urls.append(urls_to_crawl[i])
-                        error_msg = str(e)
-                        logger.warning(f"URL first crawl attempt failed: {urls_to_crawl[i]}, error: {error_msg}")
-
-                # If there are URLs to retry, perform second crawl attempt
-                if retry_urls:
-                    logger.info(f"Retrying failed URLs: {', '.join(retry_urls)}")
-
-                    # Crawl retry URLs and get results
-                    retry_crawl_result = await self.crawler.arun_many(urls=retry_urls, config=run_config)
-
-                    # Convert to list if it's an async generator
-                    retry_results: list = []
-                    if hasattr(retry_crawl_result, '__aiter__'):
-                        async for result in retry_crawl_result:  # type: ignore
-                            retry_results.append(result)
-                    else:
-                        retry_results = list(retry_crawl_result) if retry_crawl_result else []  # type: ignore
-
-                    for i, result in enumerate(retry_results):
-                        try:
-                            if result is None:
-                                logger.debug(f"Retry URL crawl result is None: {retry_urls[i]}")
-                                failed_urls.append(retry_urls[i])
-                                continue
-
-                            if not hasattr(result, 'success'):
-                                logger.debug(f"Retry URL crawl result missing success attribute: {retry_urls[i]}")
-                                failed_urls.append(retry_urls[i])
-                                continue
-
-                            if result.success:
-                                if not hasattr(result, 'markdown') or not hasattr(result.markdown, 'fit_markdown'):
-                                    logger.debug(f"Retry URL crawl result missing markdown content: {retry_urls[i]}")
-                                    failed_urls.append(retry_urls[i])
-                                    continue
-
-                                # Add successful retry result to the list
-                                all_results.append({
-                                    "content": result.markdown.fit_markdown,
-                                    "reference": retry_urls[i]
-                                })
-                                logger.info(f"Successfully crawled URL on retry: {retry_urls[i]}")
-                            else:
-                                logger.debug(f"Retry URL crawl still failed: {retry_urls[i]}")
-                                failed_urls.append(retry_urls[i])
-                        except Exception as e:
-                            # Record finally failed URLs
-                            failed_urls.append(retry_urls[i])
-                            error_msg = str(e)
-                            logger.error(f"URL second crawl attempt failed: {retry_urls[i]}, error: {error_msg}")
-
-            # Consolidate failed URLs
-            crawled_urls = {res["reference"] for res in all_results}
-            failed_urls.extend([url for url in urls_to_process if url not in crawled_urls])
-
-            if not all_results:
+            failed_urls = pending_urls
+            if not all_results and not cached_results:
                 logger.error("All URL crawls failed")
                 raise HTTPException(status_code=500, detail="All URL crawls failed")
 
-            # Process each result to convert markdown to plain text
             text_processing_started = time.perf_counter()
             loop = asyncio.get_running_loop()
             processing_tasks = [
@@ -573,46 +448,43 @@ class WebCrawler:
             ]
             processed_results = await asyncio.gather(*processing_tasks)
             text_processing_ms = (time.perf_counter() - text_processing_started) * 1000
+            timings_ms["text_processing"] = round(text_processing_ms, 2)
 
-            # Cache newly crawled results
             if self.cache_manager and self.cache_manager.is_available() and processed_results:
                 cache_write_started = time.perf_counter()
-                cache_items = []
-                for result in processed_results:
-                    cache_items.append({
+                cache_items = [
+                    {
                         "url": result["reference"],
                         "content": result["content"],
-                        "reference": result["reference"]
-                    })
-                cached_count = await self.cache_manager.set_batch(cache_items, instruction)
+                        "reference": result["reference"],
+                    }
+                    for result in processed_results
+                ]
+                await self.cache_manager.set_batch(cache_items, instruction)
                 cache_write_ms = (time.perf_counter() - cache_write_started) * 1000
-                logger.info(f"Cached {cached_count} newly crawled results")
+                timings_ms["cache_write"] = round(cache_write_ms, 2)
 
-            # Combine cached and newly crawled results
             all_processed_results = cached_results + processed_results
-
             response = {
                 "results": all_processed_results,
                 "success_count": len(all_processed_results),
                 "failed_urls": failed_urls,
                 "cache_hits": len(cached_results),
                 "newly_crawled": len(processed_results),
+                **stage_counts,
                 "timings_ms": {
-                    "cache_lookup": round(cache_lookup_ms, 2),
-                    "fetch": round(fetch_ms, 2),
-                    "text_processing": round(text_processing_ms, 2),
-                    "cache_write": round(cache_write_ms, 2),
+                    **timings_ms,
                     "total": round((time.perf_counter() - total_started) * 1000, 2),
                 },
             }
-
             logger.info(
                 f"Crawl completed, total: {len(all_processed_results)}, "
-                f"cache hits: {len(cached_results)}, "
-                f"newly crawled: {len(processed_results)}, "
-                f"failed: {len(failed_urls)}, timings_ms={response['timings_ms']}"
+                f"cache hits: {len(cached_results)}, newly crawled: {len(processed_results)}, "
+                f"failed: {len(failed_urls)}, stage_counts={stage_counts}, timings_ms={response['timings_ms']}"
             )
             return response
-        except Exception as e:
-            logger.error(f"Exception occurred during crawling: {str(e)}")
-            raise HTTPException(status_code=500, detail=str(e)) from e
+        except HTTPException:
+            raise
+        except Exception as exc:
+            logger.error(f"Exception occurred during crawling: {str(exc)}")
+            raise HTTPException(status_code=500, detail=str(exc)) from exc

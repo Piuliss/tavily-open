@@ -1,7 +1,7 @@
 # tavily-open
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
+[![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
 
 [中文文档](README_CN.md) | English
 
@@ -9,16 +9,16 @@
 
 ## 📖 Introduction
 
-**tavily-open** is a powerful open-source search and web crawling tool built on SearXNG. It provides flexible web content extraction capabilities through two main methods: the robust `Crawl4AI` library for deep crawling and an optional integration with `Jina Reader` for fast, AI-powered content fetching. This dual-engine approach allows users to choose between comprehensive crawling and high-speed content extraction. The tool is fully open-source, customizable, and supports distributed caching.
+**tavily-open** is a powerful open-source search and web crawling tool built on SearXNG. It now uses a hybrid extraction pipeline: lightweight HTTP extraction first, `Jina Reader` as a secondary fallback, and browser rendering only when cheaper stages fail. Browser rendering can run against a remote Browserless/CDP cluster, with optional local Playwright fallback for the few pages that truly need it. The tool is fully open-source, customizable, and supports distributed caching.
 
 ### ✨ Key Features
 
 - 🔎 **Intelligent Search** - High-quality search results through SearXNG meta search engine
-- 🕷️ **Dual Crawling Engines** - Choose between `Crawl4AI` for deep, JavaScript-rendered crawling and `Jina Reader` for fast, AI-optimized content extraction.
+- 🕷️ **Hybrid Extraction Pipeline** - `HTTP extractor -> Reader -> remote browser -> local browser fallback`, reducing browser usage on the hot path.
 - 🚀 **Distributed Caching** - Redis-based distributed caching to reduce redundant crawling and improve performance
 - 🎯 **RESTful API** - Clean and easy-to-use API interface with Swagger documentation
 - ⚙️ **Highly Customizable** - Flexible configuration for search engines, crawler parameters, and caching strategies
-- 🔄 **Concurrent Processing** - Multi-threaded parallel crawling for improved throughput
+- 🔄 **Concurrent Processing** - Async HTTP/Reader stages with browser fallback only for difficult pages
 - 🐳 **Docker Support** - One-click deployment with all dependencies included
 - 🧪 **Comprehensive Testing** - Full test suite and code quality tools
 
@@ -57,18 +57,29 @@
                   │ URLs to Process
                   │
       ┌───────────▼───────────┐
-      │  Extraction Engine    │
-      │ (Select via .env)     │
+      │  HTTP Extractor       │
+      │  (Fast Path)          │
       └───────────┬───────────┘
-      ┌───────────┴───────────┐
-      │                       │
-┌─────▼─────┐           ┌─────▼─────┐
-│ Jina Reader │           │ Crawl4AI  │
-│  (Profile:  │           │  (Default)  │
-│   reader)   │           │           │
-└─────┬─────┘           └─────┬─────┘
-      │                       │
-      └───────────┬───────────┘
+                  │
+       miss_or_low_quality
+                  │
+         ┌────────▼─────────┐
+         │   Jina Reader    │
+         │ (Second Stage)   │
+         └────────┬─────────┘
+                  │
+       miss_or_low_quality
+                  │
+         ┌────────▼─────────┐
+         │ Browserless/CDP  │
+         │ (Remote Browser) │
+         └────────┬─────────┘
+                  │ remote_failed
+                  ▼
+         ┌────────▼─────────┐
+         │ Local Playwright │
+         │   (Fallback)     │
+         └────────┬─────────┘
                   │
          ┌────────▼─────────┐
          │ Content Filter   │
@@ -89,9 +100,11 @@
 2. **Cache Check** - System first checks Redis cache for previously crawled content (if caching is enabled).
 3. **Search Phase** - The query is sent to SearXNG to retrieve a relevant URL list and metadata.
 4. **URL Deduplication** - Search results are deduplicated, and their cache hit status is checked.
-5. **Content Extraction** - For uncached URLs, the system uses one of two configured engines. The choice is determined by the `READER_ENABLED` setting in the `.env` file and the active Docker Compose profile.
-    - **Crawl4AI (Default)**: Provides deep crawling with JavaScript rendering. This is the default method.
-    - **Jina Reader (Optional)**: When `READER_ENABLED=true` is set and the `reader` profile is active, the system uses the Jina Reader service for fast, AI-powered content extraction.
+5. **Content Extraction** - For uncached URLs, the system tries several extractors in order:
+    - **HTTP Extractor (Default)**: Fetches raw HTML and extracts article-like content without a browser.
+    - **Jina Reader (Optional)**: If the HTTP fast path fails or returns poor content, Reader can be used as a second-stage fallback.
+    - **Browserless/CDP (Optional)**: If browser rendering is needed, the system can connect to a remote browser cluster.
+    - **Local Playwright (Optional)**: If remote rendering fails and local fallback is enabled, a local browser is started on demand.
 6. **Content Processing** - The extracted raw content is cleaned, formatted, and filtered for quality.
 7. **Cache Storage** - Successfully fetched content is stored in Redis with an expiration time.
 8. **Return Results** - The final processed content is returned along with statistics (cache hits, newly crawled, failures).
@@ -102,7 +115,7 @@
 |-----------|-------------|------------|
 | **API Server** | RESTful API interface | FastAPI + Uvicorn |
 | **Search Engine** | Privacy-friendly meta search | SearXNG |
-| **Crawler Engine** | Intelligent content extraction | Crawl4AI + Playwright / Jina Reader |
+| **Crawler Engine** | Intelligent staged extraction | HTTP extractor + Jina Reader + Browserless/CDP + local Playwright |
 | **Cache Layer** | Distributed cache storage | Redis |
 | **Concurrent Processing** | Multi-threaded crawling | ThreadPoolExecutor |
 
@@ -110,7 +123,7 @@
 
 ### 📋 Prerequisites
 
-- Python 3.8+
+- Python 3.9+
 - SearXNG instance (local or remote)
 - Playwright browser (automatically handled by installation script)
 - Redis (optional, for caching - included in Docker setup)
@@ -149,8 +162,9 @@ This project supports selective service startup using profiles:
 |---------|------------------|----------|
 | **Default (no profile)** | App + Redis | Development with external SearXNG |
 | **searxng** | App + Redis + SearXNG | Complete local environment |
-| **reader** | App + Redis + Reader | Use Reader service for content extraction |
-| **full** | All services | Production or full testing |
+| **reader** | App + Redis + Reader | Enable Reader fallback stage |
+| **browserless** | App + Redis + Browserless | Remote browser fallback without local browser cluster |
+| **full** | All services | HTTP + Reader + Browserless + local fallback |
 
 **Startup Examples:**
 
@@ -164,6 +178,9 @@ docker-compose --profile searxng up -d
 # Start with Reader service included
 docker-compose --profile reader up -d
 
+# Start with Browserless remote browser included
+docker-compose --profile browserless up -d
+
 # Start all services
 docker-compose --profile full up -d
 ```
@@ -172,6 +189,7 @@ docker-compose --profile full up -d
 - **Main API**: `http://localhost:8000`
 - **SearXNG Interface**: `http://localhost:8080` (when using searxng profile)
 - **Reader Service**: `http://localhost:3001` (when using reader profile)
+- **Browserless**: `http://localhost:3002` (when using browserless profile)
 - **Redis**: `localhost:6379`
 
 For detailed Docker Profiles usage, see: [`DOCKER_PROFILES.md`](DOCKER_PROFILES.md)

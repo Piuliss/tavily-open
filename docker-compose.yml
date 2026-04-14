@@ -71,6 +71,20 @@ services:
       - "3001:3000"
     restart: unless-stopped
 
+  browserless:
+    image: ghcr.io/browserless/chromium:latest
+    container_name: searcrawl_browserless
+    profiles:
+      - browserless
+      - full
+    environment:
+      - TOKEN=$${BROWSERLESS_TOKEN:-}
+      - MAX_CONCURRENT_SESSIONS=$${BROWSER_REMOTE_MAX_CONCURRENCY:-2}
+      - PREBOOT_CHROME=true
+    ports:
+      - "3002:3000"
+    restart: unless-stopped
+
   app:
     <<: *app-base
     container_name: searcrawl_app
@@ -80,7 +94,10 @@ services:
     environment:
       - REDIS_URL=redis://redis:6379/0
       - SEARXNG_URL=$${SEARXNG_URL:-http://searxng:8080}
-      - READER_ENABLED=false
+      - READER_ENABLED=$${READER_ENABLED:-true}
+      - BROWSER_BACKEND=$${BROWSER_BACKEND:-local}
+      - BROWSERLESS_WS_URL=$${BROWSERLESS_WS_URL:-ws://browserless:3000}
+      - BROWSER_LOCAL_FALLBACK_ENABLED=$${BROWSER_LOCAL_FALLBACK_ENABLED:-true}
 
   app-reader:
     <<: *app-base
@@ -97,7 +114,10 @@ services:
       - REDIS_URL=redis://redis:6379/0
       - SEARXNG_URL=$${SEARXNG_URL:-http://searxng:8080}
       - READER_URL=http://reader:3000
-      - READER_ENABLED=true
+      - READER_ENABLED=$${READER_ENABLED:-true}
+      - BROWSER_BACKEND=$${BROWSER_BACKEND:-local}
+      - BROWSERLESS_WS_URL=$${BROWSERLESS_WS_URL:-ws://browserless:3000}
+      - BROWSER_LOCAL_FALLBACK_ENABLED=$${BROWSER_LOCAL_FALLBACK_ENABLED:-true}
 
 volumes:
   redis_data:

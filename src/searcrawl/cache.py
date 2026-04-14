@@ -8,8 +8,9 @@ crawling operations.
 
 import hashlib
 import json
+from collections.abc import Sequence
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Optional
 
 import redis.asyncio as redis
 from loguru import logger
@@ -100,11 +101,11 @@ class CacheManager:
 
     def _build_crawl_key_map(
         self, urls: Sequence[str], instruction: str = ""
-    ) -> List[Tuple[str, str]]:
+    ) -> list[tuple[str, str]]:
         """Build ordered crawl cache keys for batched Redis operations."""
         return [(url, self._generate_cache_key(url, instruction)) for url in urls]
 
-    async def get_search_cache(self, query: str) -> Optional[Dict[str, Any]]:
+    async def get_search_cache(self, query: str) -> Optional[dict[str, Any]]:
         """Get cached search result for a query
 
         Args:
@@ -133,7 +134,7 @@ class CacheManager:
             logger.warning(f"Error retrieving from search cache: {str(e)}")
             return None
 
-    async def set_search_cache(self, query: str, result: Dict[str, Any]) -> bool:
+    async def set_search_cache(self, query: str, result: dict[str, Any]) -> bool:
         """Cache a search result for a query.
 
         Args:
@@ -149,16 +150,10 @@ class CacheManager:
 
         try:
             cache_key = self._generate_search_cache_key(query)
-            cache_data = {
-                "result": result,
-                "cached_at": datetime.now().isoformat(),
-                "query": query
-            }
+            cache_data = {"result": result, "cached_at": datetime.now().isoformat(), "query": query}
 
             await self.redis_client.setex(
-                cache_key,
-                self.search_ttl_seconds,
-                json.dumps(cache_data, ensure_ascii=False)
+                cache_key, self.search_ttl_seconds, json.dumps(cache_data, ensure_ascii=False)
             )
             logger.debug(f"Cached search result for query: {query}")
             return True
@@ -166,7 +161,7 @@ class CacheManager:
             logger.warning(f"Error storing in search cache: {str(e)}")
             return False
 
-    async def get(self, url: str, instruction: str = "") -> Optional[Dict[str, Any]]:
+    async def get(self, url: str, instruction: str = "") -> Optional[dict[str, Any]]:
         """Get cached crawl result for a URL
 
         Args:
@@ -223,13 +218,11 @@ class CacheManager:
                 "content": content,
                 "reference": reference,
                 "cached_at": datetime.now().isoformat(),
-                "url": url
+                "url": url,
             }
 
             await self.redis_client.setex(
-                cache_key,
-                self.ttl_seconds,
-                json.dumps(cache_data, ensure_ascii=False)
+                cache_key, self.ttl_seconds, json.dumps(cache_data, ensure_ascii=False)
             )
             logger.debug(f"Cached result for URL: {url}")
             return True
@@ -241,7 +234,7 @@ class CacheManager:
         self,
         urls: Sequence[str],
         instruction: str = "",
-    ) -> Dict[str, Optional[Dict[str, Any]]]:
+    ) -> dict[str, Optional[dict[str, Any]]]:
         """Get cached results for multiple URLs
 
         Args:
@@ -259,7 +252,7 @@ class CacheManager:
             key_pairs = self._build_crawl_key_map(urls, instruction)
             keys = [cache_key for _, cache_key in key_pairs]
             cached_values = await self.redis_client.mget(keys)
-            results: Dict[str, Optional[Dict[str, Any]]] = {}
+            results: dict[str, Optional[dict[str, Any]]] = {}
             for (url, _), cached_value in zip(key_pairs, cached_values):
                 results[url] = json.loads(cached_value) if cached_value else None
             return results
@@ -267,7 +260,7 @@ class CacheManager:
             logger.warning(f"Error retrieving batch from cache: {str(e)}")
             return dict.fromkeys(urls)
 
-    async def set_batch(self, items: Sequence[Dict[str, str]], instruction: str = "") -> int:
+    async def set_batch(self, items: Sequence[dict[str, str]], instruction: str = "") -> int:
         """Cache multiple crawl results
 
         Args:
@@ -283,7 +276,7 @@ class CacheManager:
 
         try:
             async with self.redis_client.pipeline(transaction=False) as pipeline:
-                key_order: List[str] = []
+                key_order: list[str] = []
                 success_count = 0
 
                 for item in items:
@@ -389,7 +382,7 @@ class CacheManager:
             logger.warning(f"Error clearing all cache: {str(e)}")
             return False
 
-    async def get_cache_stats(self) -> Dict[str, Any]:
+    async def get_cache_stats(self) -> dict[str, Any]:
         """Get cache statistics
 
         Returns:
@@ -408,7 +401,7 @@ class CacheManager:
                 "crawl_entries": crawl_entries,
                 "search_entries": search_entries,
                 "memory_used": info.get("used_memory_human", "unknown"),
-                "redis_version": info.get("redis_version", "unknown")
+                "redis_version": info.get("redis_version", "unknown"),
             }
         except Exception as e:
             logger.warning(f"Error getting cache stats: {str(e)}")

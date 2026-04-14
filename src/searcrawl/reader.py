@@ -1,10 +1,11 @@
 import asyncio
-from typing import Any, Dict, Optional
+from typing import Any, Optional
 from urllib.parse import quote
 
 import aiohttp
 
-from .config import READER_API_KEY, READER_TIMEOUT_SECONDS, READER_URL
+from .config import READER_API_KEY, READER_MIN_CONTENT_LENGTH, READER_TIMEOUT_SECONDS, READER_URL
+from .extractor import is_content_usable
 from .logger import logger
 
 
@@ -17,7 +18,8 @@ async def _fetch_with_session(
     session: aiohttp.ClientSession,
     url: str,
     timeout_seconds: float,
-) -> Optional[Dict[str, Any]]:
+    min_content_length: int,
+) -> Optional[dict[str, Any]]:
     """Fetch a URL using a provided aiohttp session."""
     reader_api_url = build_reader_api_url(url)
     headers = {
@@ -35,7 +37,7 @@ async def _fetch_with_session(
         ) as response:
             if response.status == 200:
                 content = await response.text()
-                if content:
+                if is_content_usable(content, min_content_length):
                     logger.debug(f"Successfully fetched content for {url} with Reader.")
                     return {"content": content, "reference": url}
 
@@ -63,7 +65,8 @@ async def fetch_with_reader(
     session: Optional[aiohttp.ClientSession] = None,
     semaphore: Optional[asyncio.Semaphore] = None,
     timeout_seconds: float = READER_TIMEOUT_SECONDS,
-) -> Optional[Dict[str, Any]]:
+    min_content_length: int = READER_MIN_CONTENT_LENGTH,
+) -> Optional[dict[str, Any]]:
     """
     Asynchronously fetches the content of a URL using the Reader service.
 
@@ -77,12 +80,17 @@ async def fetch_with_reader(
         Optional[Dict[str, Any]]: A dictionary containing the fetched content and metadata,
                                      or None if the fetch failed.
     """
-    async def _run_request(request_session: aiohttp.ClientSession) -> Optional[Dict[str, Any]]:
+
+    async def _run_request(request_session: aiohttp.ClientSession) -> Optional[dict[str, Any]]:
         if semaphore is None:
-            return await _fetch_with_session(request_session, url, timeout_seconds)
+            return await _fetch_with_session(
+                request_session, url, timeout_seconds, min_content_length
+            )
 
         async with semaphore:
-            return await _fetch_with_session(request_session, url, timeout_seconds)
+            return await _fetch_with_session(
+                request_session, url, timeout_seconds, min_content_length
+            )
 
     if session is not None:
         return await _run_request(session)
