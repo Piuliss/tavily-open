@@ -199,8 +199,8 @@ For detailed Docker Profiles usage, see: [`DOCKER_PROFILES.md`](DOCKER_PROFILES.
 #### 1. Clone the Repository
 
 ```bash
-git clone https://github.com/Owoui/SearXNG-Crawl4AI.git
-cd SearXNG-Crawl4AI
+git clone https://github.com/jianjungki/tavily-open.git
+cd tavily-open
 ```
 
 #### 2. Create Virtual Environment
