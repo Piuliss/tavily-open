@@ -19,7 +19,12 @@ logger.info("Loading environment variable configuration")
 SEARXNG_HOST = os.getenv("SEARXNG_HOST", "localhost")
 SEARXNG_PORT = int(os.getenv("SEARXNG_PORT", "8080"))
 SEARXNG_BASE_PATH = os.getenv("SEARXNG_BASE_PATH", "/search")
-SEARXNG_API_BASE = f"http://{SEARXNG_HOST}:{SEARXNG_PORT}{SEARXNG_BASE_PATH}"
+SEARXNG_URL = os.getenv("SEARXNG_URL", "").strip().rstrip("/")
+SEARXNG_API_BASE = (
+    f"{SEARXNG_URL}{SEARXNG_BASE_PATH}"
+    if SEARXNG_URL
+    else f"http://{SEARXNG_HOST}:{SEARXNG_PORT}{SEARXNG_BASE_PATH}"
+)
 
 # API Service Configuration
 API_HOST = os.getenv("API_HOST", "0.0.0.0")
@@ -28,6 +33,7 @@ API_PORT = int(os.getenv("API_PORT", "3000"))
 # Reader Service Configuration
 READER_ENABLED = os.getenv("READER_ENABLED", "true").lower() == "true"
 READER_URL = os.getenv("READER_URL", "http://reader:3000")
+READER_URLS = os.getenv("READER_URLS", "").strip()
 READER_API_KEY = os.getenv("READER_API_KEY", "")
 READER_TIMEOUT_SECONDS = float(os.getenv("READER_TIMEOUT_SECONDS", "30"))
 READER_MAX_CONCURRENCY = int(os.getenv("READER_MAX_CONCURRENCY", "20"))
@@ -43,6 +49,11 @@ HTTP_EXTRACTOR_ENABLED = os.getenv("HTTP_EXTRACTOR_ENABLED", "true").lower() == 
 HTTP_EXTRACTOR_TIMEOUT_SECONDS = float(os.getenv("HTTP_EXTRACTOR_TIMEOUT_SECONDS", "10"))
 HTTP_EXTRACTOR_MAX_CONCURRENCY = int(os.getenv("HTTP_EXTRACTOR_MAX_CONCURRENCY", "20"))
 HTTP_EXTRACTOR_MIN_CONTENT_LENGTH = int(os.getenv("HTTP_EXTRACTOR_MIN_CONTENT_LENGTH", "300"))
+CRAWL_EXTRACTION_STRATEGY = os.getenv("CRAWL_EXTRACTION_STRATEGY", "reader_first").lower().strip()
+CRAWL_QUALITY_GATE_ENABLED = (
+    os.getenv("CRAWL_QUALITY_GATE_ENABLED", "true").lower() == "true"
+)
+CRAWL_MIN_QUALITY_SCORE = float(os.getenv("CRAWL_MIN_QUALITY_SCORE", "0.35"))
 
 # Browser Fallback Configuration
 BROWSER_BACKEND = os.getenv("BROWSER_BACKEND", "local").lower()
@@ -53,6 +64,17 @@ BROWSER_LOCAL_FALLBACK_ENABLED = (
     os.getenv("BROWSER_LOCAL_FALLBACK_ENABLED", "true").lower() == "true"
 )
 BROWSER_LOCAL_MAX_CONCURRENCY = int(os.getenv("BROWSER_LOCAL_MAX_CONCURRENCY", "1"))
+OBSCURA_BINARY = os.getenv("OBSCURA_BINARY", "obscura").strip()
+OBSCURA_TIMEOUT_SECONDS = float(
+    os.getenv("OBSCURA_TIMEOUT_SECONDS", str(BROWSER_REMOTE_TIMEOUT_SECONDS))
+)
+OBSCURA_MAX_CONCURRENCY = int(os.getenv("OBSCURA_MAX_CONCURRENCY", "4"))
+OBSCURA_STEALTH_ENABLED = os.getenv("OBSCURA_STEALTH_ENABLED", "false").lower() == "true"
+OBSCURA_WAIT_UNTIL = os.getenv("OBSCURA_WAIT_UNTIL", "networkidle0").strip()
+OBSCURA_DUMP_FORMAT = os.getenv("OBSCURA_DUMP_FORMAT", "text").strip()
+OBSCURA_ALLOW_PRIVATE_NETWORK = (
+    os.getenv("OBSCURA_ALLOW_PRIVATE_NETWORK", "false").lower() == "true"
+)
 
 # Cache Configuration
 CACHE_ENABLED = os.getenv("CACHE_ENABLED", "true").lower() == "true"
@@ -61,7 +83,13 @@ CACHE_TTL_HOURS = int(os.getenv("CACHE_TTL_HOURS", "24"))
 SEARCH_CACHE_TTL_SECONDS = int(os.getenv("SEARCH_CACHE_TTL_SECONDS", "300"))
 
 # Search Engine Configuration
-SEARCH_PROVIDER = os.getenv("SEARCH_PROVIDER", "searxng").strip().lower()
+SEARCH_PROVIDER = os.getenv("SEARCH_PROVIDER", "router").strip().lower()
+SEARCH_ROUTE_PROVIDERS = os.getenv("SEARCH_ROUTE_PROVIDERS", "local,searxng,brave").strip()
+EXTERNAL_SEARCH_ENABLED = os.getenv("EXTERNAL_SEARCH_ENABLED", "false").lower() == "true"
+EXTERNAL_SEARCH_FALLBACK_ONLY = (
+    os.getenv("EXTERNAL_SEARCH_FALLBACK_ONLY", "true").lower() == "true"
+)
+SEARCH_ROUTER_MIN_RESULTS = int(os.getenv("SEARCH_ROUTER_MIN_RESULTS", "3"))
 DISABLED_ENGINES = os.getenv(
     "DISABLED_ENGINES",
     "wikipedia__general,currency__general,wikidata__general,duckduckgo__general,"
@@ -72,6 +100,38 @@ ENABLED_ENGINES = os.getenv("ENABLED_ENGINES", "baidu__general")
 SEARCH_LANGUAGE = os.getenv("SEARCH_LANGUAGE", "auto")
 BRAVE_SEARCH_API_BASE = os.getenv("BRAVE_SEARCH_API_BASE", "https://api.search.brave.com/res/v1")
 BRAVE_SEARCH_API_KEY = os.getenv("BRAVE_SEARCH_API_KEY", "").strip()
+
+# Local Index Configuration
+LOCAL_INDEX_ENABLED = os.getenv("LOCAL_INDEX_ENABLED", "true").lower() == "true"
+LOCAL_INDEX_PATH = os.getenv("LOCAL_INDEX_PATH", "").strip()
+LOCAL_INDEX_MIN_RESULTS = int(os.getenv("LOCAL_INDEX_MIN_RESULTS", "3"))
+
+# Background Backfill Configuration
+BACKFILL_ENABLED = os.getenv("BACKFILL_ENABLED", "true").lower() == "true"
+BACKFILL_QUEUE_BACKEND = os.getenv("BACKFILL_QUEUE_BACKEND", "redis").strip().lower()
+BACKFILL_REDIS_KEY_PREFIX = os.getenv(
+    "BACKFILL_REDIS_KEY_PREFIX",
+    "searcrawl:backfill",
+).strip()
+BACKFILL_CLAIM_TTL_SECONDS = int(os.getenv("BACKFILL_CLAIM_TTL_SECONDS", "900"))
+BACKFILL_BATCH_SIZE = int(os.getenv("BACKFILL_BATCH_SIZE", "3"))
+BACKFILL_WORKER_INTERVAL_SECONDS = float(os.getenv("BACKFILL_WORKER_INTERVAL_SECONDS", "30"))
+BACKFILL_MAX_ATTEMPTS = int(os.getenv("BACKFILL_MAX_ATTEMPTS", "5"))
+BACKFILL_BASE_DELAY_SECONDS = float(os.getenv("BACKFILL_BASE_DELAY_SECONDS", "300"))
+BACKFILL_MAX_DELAY_SECONDS = float(os.getenv("BACKFILL_MAX_DELAY_SECONDS", "86400"))
+
+# Service Registry Configuration
+ETCD_ENABLED = os.getenv("ETCD_ENABLED", "false").lower() == "true"
+ETCD_ENDPOINTS = os.getenv("ETCD_ENDPOINTS", "http://etcd:2379").strip()
+ETCD_NAMESPACE = os.getenv("ETCD_NAMESPACE", "searcrawl").strip()
+ETCD_TTL_SECONDS = int(os.getenv("ETCD_TTL_SECONDS", "30"))
+ETCD_REFRESH_SECONDS = float(os.getenv("ETCD_REFRESH_SECONDS", "10"))
+ETCD_NODE_ID = os.getenv("ETCD_NODE_ID", "").strip()
+ETCD_NODE_ENDPOINT = os.getenv("ETCD_NODE_ENDPOINT", "").strip()
+ETCD_DISCOVER_READERS = os.getenv("ETCD_DISCOVER_READERS", "true").lower() == "true"
+ETCD_REGISTER_SELF = os.getenv("ETCD_REGISTER_SELF", "true").lower() == "true"
+ETCD_SELF_SERVICES = os.getenv("ETCD_SELF_SERVICES", "crawler").strip()
+ETCD_REGISTER_READER_URLS = os.getenv("ETCD_REGISTER_READER_URLS", "false").lower() == "true"
 
 # Anti-Crawl Configuration
 ANTI_CRAWL_ENABLED = os.getenv("ANTI_CRAWL_ENABLED", "true").lower() == "true"
@@ -104,12 +164,14 @@ def get_config_info() -> dict[str, Any]:
             "host": SEARXNG_HOST,
             "port": SEARXNG_PORT,
             "base_path": SEARXNG_BASE_PATH,
+            "url": SEARXNG_URL,
             "api_base": SEARXNG_API_BASE,
         },
         "api": {"host": API_HOST, "port": API_PORT},
         "reader": {
             "enabled": READER_ENABLED,
             "url": READER_URL,
+            "urls": READER_URLS,
             "timeout_seconds": READER_TIMEOUT_SECONDS,
             "max_concurrency": READER_MAX_CONCURRENCY,
             "min_content_length": READER_MIN_CONTENT_LENGTH,
@@ -124,6 +186,9 @@ def get_config_info() -> dict[str, Any]:
             "http_extractor_timeout_seconds": HTTP_EXTRACTOR_TIMEOUT_SECONDS,
             "http_extractor_max_concurrency": HTTP_EXTRACTOR_MAX_CONCURRENCY,
             "http_extractor_min_content_length": HTTP_EXTRACTOR_MIN_CONTENT_LENGTH,
+            "extraction_strategy": CRAWL_EXTRACTION_STRATEGY,
+            "quality_gate_enabled": CRAWL_QUALITY_GATE_ENABLED,
+            "min_quality_score": CRAWL_MIN_QUALITY_SCORE,
         },
         "browser": {
             "backend": BROWSER_BACKEND,
@@ -132,6 +197,13 @@ def get_config_info() -> dict[str, Any]:
             "remote_max_concurrency": BROWSER_REMOTE_MAX_CONCURRENCY,
             "local_fallback_enabled": BROWSER_LOCAL_FALLBACK_ENABLED,
             "local_max_concurrency": BROWSER_LOCAL_MAX_CONCURRENCY,
+            "obscura_binary": OBSCURA_BINARY,
+            "obscura_timeout_seconds": OBSCURA_TIMEOUT_SECONDS,
+            "obscura_max_concurrency": OBSCURA_MAX_CONCURRENCY,
+            "obscura_stealth_enabled": OBSCURA_STEALTH_ENABLED,
+            "obscura_wait_until": OBSCURA_WAIT_UNTIL,
+            "obscura_dump_format": OBSCURA_DUMP_FORMAT,
+            "obscura_allow_private_network": OBSCURA_ALLOW_PRIVATE_NETWORK,
         },
         "cache": {
             "enabled": CACHE_ENABLED,
@@ -142,8 +214,41 @@ def get_config_info() -> dict[str, Any]:
         "search_engines": {"disabled": DISABLED_ENGINES, "enabled": ENABLED_ENGINES},
         "search_provider": {
             "default": SEARCH_PROVIDER,
+            "route_providers": SEARCH_ROUTE_PROVIDERS,
+            "external_search_enabled": EXTERNAL_SEARCH_ENABLED,
+            "external_search_fallback_only": EXTERNAL_SEARCH_FALLBACK_ONLY,
+            "router_min_results": SEARCH_ROUTER_MIN_RESULTS,
             "brave_api_base": BRAVE_SEARCH_API_BASE,
             "brave_api_key_configured": bool(BRAVE_SEARCH_API_KEY),
+        },
+        "local_index": {
+            "enabled": LOCAL_INDEX_ENABLED,
+            "path": LOCAL_INDEX_PATH,
+            "min_results": LOCAL_INDEX_MIN_RESULTS,
+        },
+        "backfill": {
+            "enabled": BACKFILL_ENABLED,
+            "queue_backend": BACKFILL_QUEUE_BACKEND,
+            "redis_key_prefix": BACKFILL_REDIS_KEY_PREFIX,
+            "claim_ttl_seconds": BACKFILL_CLAIM_TTL_SECONDS,
+            "batch_size": BACKFILL_BATCH_SIZE,
+            "worker_interval_seconds": BACKFILL_WORKER_INTERVAL_SECONDS,
+            "max_attempts": BACKFILL_MAX_ATTEMPTS,
+            "base_delay_seconds": BACKFILL_BASE_DELAY_SECONDS,
+            "max_delay_seconds": BACKFILL_MAX_DELAY_SECONDS,
+        },
+        "service_registry": {
+            "etcd_enabled": ETCD_ENABLED,
+            "etcd_endpoints": ETCD_ENDPOINTS,
+            "etcd_namespace": ETCD_NAMESPACE,
+            "etcd_ttl_seconds": ETCD_TTL_SECONDS,
+            "etcd_refresh_seconds": ETCD_REFRESH_SECONDS,
+            "etcd_node_id": ETCD_NODE_ID,
+            "etcd_node_endpoint": ETCD_NODE_ENDPOINT,
+            "etcd_discover_readers": ETCD_DISCOVER_READERS,
+            "etcd_register_self": ETCD_REGISTER_SELF,
+            "etcd_self_services": ETCD_SELF_SERVICES,
+            "etcd_register_reader_urls": ETCD_REGISTER_READER_URLS,
         },
         "anti_crawl": {
             "enabled": ANTI_CRAWL_ENABLED,

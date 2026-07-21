@@ -222,6 +222,8 @@ class CacheManager:
         content: str,
         reference: str,
         instruction: str = "",
+        source_stage: str = "",
+        quality_score: str = "",
     ) -> bool:
         """Cache a crawl result for a URL
 
@@ -245,6 +247,8 @@ class CacheManager:
                 "reference": reference,
                 "cached_at": datetime.now().isoformat(),
                 "url": url,
+                "source_stage": source_stage,
+                "quality_score": quality_score,
             }
 
             await self.redis_client.setex(
@@ -318,6 +322,8 @@ class CacheManager:
                         "reference": reference,
                         "cached_at": datetime.now().isoformat(),
                         "url": url,
+                        "source_stage": item.get("source_stage", ""),
+                        "quality_score": item.get("quality_score", ""),
                     }
                     key_order.append(url)
                     pipeline.setex(

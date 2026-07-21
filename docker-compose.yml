@@ -1,11 +1,11 @@
-version: '3.8'
-
 x-app-base: &app-base
-  build: .
+  build:
+    context: .
+    args:
+      PYTHON_IMAGE: ${PYTHON_IMAGE:-mcr.microsoft.com/devcontainers/python:1-3.11-bookworm}
   volumes:
     - ./src:/app/src
-  ports:
-    - "8000:3000"
+    - ./data:/app/data
   env_file:
     - .env
   depends_on:
@@ -14,7 +14,7 @@ x-app-base: &app-base
 
 services:
   redis:
-    image: redis:7-alpine
+    image: ${REDIS_IMAGE:-public.ecr.aws/docker/library/redis:7-alpine}
     container_name: searcrawl_redis
     ports:
       - "6379:6379"
@@ -29,18 +29,15 @@ services:
     restart: unless-stopped
 
   searxng:
-    image: searxng/searxng:latest
+    image: ${SEARXNG_IMAGE:-ghcr.io/searxng/searxng:latest}
     container_name: searcrawl_searxng
-    profiles:
-      - searxng
-      - full
     ports:
       - "8080:8080"
     volumes:
       - ./searxng:/etc/searxng:rw
     environment:
       - SEARXNG_BASE_URL=http://localhost:8080/
-      - SEARXNG_SECRET=$${SEARXNG_SECRET:-ultrasecretkey}
+      - SEARXNG_SECRET=${SEARXNG_SECRET:-searcrawl-local-secret-4e864c866431d2a28d752646338ac29f}
     cap_drop:
       - ALL
     cap_add:
@@ -60,7 +57,7 @@ services:
       retries: 3
 
   reader:
-    image: ghcr.io/intergalacticalvariable/reader:latest
+    image: ${READER_IMAGE:-ghcr.io/intergalacticalvariable/reader:latest}
     container_name: searcrawl_reader
     profiles:
       - reader
@@ -72,14 +69,14 @@ services:
     restart: unless-stopped
 
   browserless:
-    image: ghcr.io/browserless/chromium:latest
+    image: ${BROWSERLESS_IMAGE:-ghcr.io/browserless/chromium:latest}
     container_name: searcrawl_browserless
     profiles:
       - browserless
       - full
     environment:
-      - TOKEN=$${BROWSERLESS_TOKEN:-}
-      - MAX_CONCURRENT_SESSIONS=$${BROWSER_REMOTE_MAX_CONCURRENCY:-2}
+      - TOKEN=${BROWSERLESS_TOKEN:-}
+      - MAX_CONCURRENT_SESSIONS=${BROWSER_REMOTE_MAX_CONCURRENCY:-2}
       - PREBOOT_CHROME=true
     ports:
       - "3002:3000"
@@ -88,36 +85,76 @@ services:
   app:
     <<: *app-base
     container_name: searcrawl_app
-    profiles:
-      - default
-      - searxng
+    ports:
+      - "${APP_PORT:-8000}:3000"
+    depends_on:
+      redis:
+        condition: service_healthy
+      searxng:
+        condition: service_started
     environment:
       - REDIS_URL=redis://redis:6379/0
-      - SEARXNG_URL=$${SEARXNG_URL:-http://searxng:8080}
-      - READER_ENABLED=$${READER_ENABLED:-true}
-      - BROWSER_BACKEND=$${BROWSER_BACKEND:-local}
-      - BROWSERLESS_WS_URL=$${BROWSERLESS_WS_URL:-ws://browserless:3000}
-      - BROWSER_LOCAL_FALLBACK_ENABLED=$${BROWSER_LOCAL_FALLBACK_ENABLED:-true}
+      - SEARXNG_URL=${SEARXNG_URL:-http://searxng:8080}
+      - SEARCH_PROVIDER=${SEARCH_PROVIDER:-router}
+      - SEARCH_ROUTE_PROVIDERS=${SEARCH_ROUTE_PROVIDERS:-local,searxng,brave}
+      - EXTERNAL_SEARCH_ENABLED=${EXTERNAL_SEARCH_ENABLED:-false}
+      - LOCAL_INDEX_ENABLED=${LOCAL_INDEX_ENABLED:-true}
+      - LOCAL_INDEX_PATH=${LOCAL_INDEX_PATH:-/app/data/searcrawl.sqlite3}
+      - BACKFILL_ENABLED=${BACKFILL_ENABLED:-true}
+      - BACKFILL_QUEUE_BACKEND=${BACKFILL_QUEUE_BACKEND:-redis}
+      - BACKFILL_REDIS_KEY_PREFIX=${BACKFILL_REDIS_KEY_PREFIX:-searcrawl:backfill}
+      - BACKFILL_CLAIM_TTL_SECONDS=${BACKFILL_CLAIM_TTL_SECONDS:-900}
+      - BACKFILL_BATCH_SIZE=${BACKFILL_BATCH_SIZE:-3}
+      - BACKFILL_WORKER_INTERVAL_SECONDS=${BACKFILL_WORKER_INTERVAL_SECONDS:-30}
+      - BACKFILL_MAX_ATTEMPTS=${BACKFILL_MAX_ATTEMPTS:-5}
+      - BACKFILL_BASE_DELAY_SECONDS=${BACKFILL_BASE_DELAY_SECONDS:-300}
+      - BACKFILL_MAX_DELAY_SECONDS=${BACKFILL_MAX_DELAY_SECONDS:-86400}
+      - READER_ENABLED=${READER_ENABLED:-false}
+      - READER_URLS=${READER_URLS:-}
+      - CRAWL_EXTRACTION_STRATEGY=${CRAWL_EXTRACTION_STRATEGY:-http_first}
+      - BROWSER_BACKEND=${BROWSER_BACKEND:-local}
+      - BROWSERLESS_WS_URL=${BROWSERLESS_WS_URL:-ws://browserless:3000}
+      - BROWSER_LOCAL_FALLBACK_ENABLED=${BROWSER_LOCAL_FALLBACK_ENABLED:-false}
 
   app-reader:
     <<: *app-base
     container_name: searcrawl_app_reader
+    ports:
+      - "${APP_READER_PORT:-8001}:3000"
     profiles:
       - reader
       - full
     depends_on:
       redis:
         condition: service_healthy
+      searxng:
+        condition: service_started
       reader:
         condition: service_started
     environment:
       - REDIS_URL=redis://redis:6379/0
-      - SEARXNG_URL=$${SEARXNG_URL:-http://searxng:8080}
+      - SEARXNG_URL=${SEARXNG_URL:-http://searxng:8080}
+      - SEARCH_PROVIDER=${SEARCH_PROVIDER:-router}
+      - SEARCH_ROUTE_PROVIDERS=${SEARCH_ROUTE_PROVIDERS:-local,searxng,brave}
+      - EXTERNAL_SEARCH_ENABLED=${EXTERNAL_SEARCH_ENABLED:-false}
+      - LOCAL_INDEX_ENABLED=${LOCAL_INDEX_ENABLED:-true}
+      - LOCAL_INDEX_PATH=${LOCAL_INDEX_PATH:-/app/data/searcrawl.sqlite3}
+      - BACKFILL_ENABLED=${BACKFILL_ENABLED:-true}
+      - BACKFILL_QUEUE_BACKEND=${BACKFILL_QUEUE_BACKEND:-redis}
+      - BACKFILL_REDIS_KEY_PREFIX=${BACKFILL_REDIS_KEY_PREFIX:-searcrawl:backfill}
+      - BACKFILL_CLAIM_TTL_SECONDS=${BACKFILL_CLAIM_TTL_SECONDS:-900}
+      - BACKFILL_BATCH_SIZE=${BACKFILL_BATCH_SIZE:-3}
+      - BACKFILL_WORKER_INTERVAL_SECONDS=${BACKFILL_WORKER_INTERVAL_SECONDS:-30}
+      - BACKFILL_MAX_ATTEMPTS=${BACKFILL_MAX_ATTEMPTS:-5}
+      - BACKFILL_BASE_DELAY_SECONDS=${BACKFILL_BASE_DELAY_SECONDS:-300}
+      - BACKFILL_MAX_DELAY_SECONDS=${BACKFILL_MAX_DELAY_SECONDS:-86400}
       - READER_URL=http://reader:3000
-      - READER_ENABLED=$${READER_ENABLED:-true}
-      - BROWSER_BACKEND=$${BROWSER_BACKEND:-local}
-      - BROWSERLESS_WS_URL=$${BROWSERLESS_WS_URL:-ws://browserless:3000}
-      - BROWSER_LOCAL_FALLBACK_ENABLED=$${BROWSER_LOCAL_FALLBACK_ENABLED:-true}
+      - READER_URLS=${READER_URLS:-http://reader:3000}
+      - READER_ENABLED=${READER_ENABLED:-true}
+      - CRAWL_EXTRACTION_STRATEGY=${CRAWL_EXTRACTION_STRATEGY:-reader_first}
+      - BROWSER_BACKEND=${BROWSER_BACKEND:-local}
+      - BROWSERLESS_WS_URL=${BROWSERLESS_WS_URL:-ws://browserless:3000}
+      - BROWSER_LOCAL_FALLBACK_ENABLED=${BROWSER_LOCAL_FALLBACK_ENABLED:-false}
 
 volumes:
   redis_data:

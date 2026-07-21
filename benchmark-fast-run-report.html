@@ -1,0 +1,211 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Crawler Benchmark Report</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f7f8fa;
+      --panel: #ffffff;
+      --text: #1f2933;
+      --muted: #667085;
+      --border: #d9dee7;
+      --green: #168a55;
+      --blue: #2463eb;
+      --amber: #b7791f;
+      --red: #c2410c;
+    }
+    body {
+      margin: 0;
+      font: 14px/1.5 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: var(--text);
+      background: var(--bg);
+    }
+    main { max-width: 1180px; margin: 0 auto; padding: 28px; }
+    h1 { margin: 0 0 8px; font-size: 28px; }
+    h2 { margin: 28px 0 12px; font-size: 18px; }
+    .meta { color: var(--muted); margin-bottom: 20px; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 14px; }
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 14px;
+      box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04);
+    }
+    .card h3 { margin: 0 0 8px; font-size: 16px; display: flex; justify-content: space-between; gap: 8px; }
+    .score { font-variant-numeric: tabular-nums; color: var(--blue); }
+    .metric { display: grid; grid-template-columns: 120px 1fr 64px; align-items: center; gap: 8px; margin: 8px 0; }
+    .metric label { color: var(--muted); }
+    .bar { height: 8px; background: #edf1f7; border-radius: 999px; overflow: hidden; }
+    .bar span { display:block; height:100%; background: var(--blue); border-radius: inherit; }
+    .warn span { background: var(--amber); }
+    .good span { background: var(--green); }
+    .bad span { background: var(--red); }
+    table { width: 100%; border-collapse: collapse; background: var(--panel); border: 1px solid var(--border); }
+    th, td { padding: 9px 10px; border-bottom: 1px solid var(--border); text-align: left; }
+    th { background: #eef2f7; font-weight: 650; }
+    td.num { text-align: right; font-variant-numeric: tabular-nums; }
+    .pill { padding: 2px 7px; border-radius: 999px; background: #edf1f7; color: var(--muted); font-size: 12px; }
+    .ok { color: var(--green); font-weight: 650; }
+    .no { color: var(--red); font-weight: 650; }
+    pre { overflow: auto; background: #111827; color: #d1d5db; padding: 12px; border-radius: 8px; }
+  </style>
+</head>
+<body>
+<main>
+  <h1>Crawler Benchmark Report</h1>
+  <div class="meta">
+    Rounds: <strong>2</strong> ·
+    URLs: <strong>12</strong> ·
+    Profiles: <strong>http_extractor, reader_service, scrapling_static, full_pipeline_reader</strong>
+  </div>
+
+  <h2>Profile Scorecards</h2>
+  <section class="grid">
+    <article class="card">
+      <h3>reader_service <span class="score">96.3%</span></h3>
+      <div class="meta"><span class="ok">available</span></div>
+      <div class="metric good"><label>Overall</label><div class="bar"><span style="width:96.3%"></span></div><span>96.3%</span></div>
+      <div class="metric good"><label>Usable</label><div class="bar"><span style="width:100.0%"></span></div><span>100.0%</span></div>
+      <div class="metric good"><label>Recall</label><div class="bar"><span style="width:100.0%"></span></div><span>100.0%</span></div>
+      <div class="metric good"><label>Text F1</label><div class="bar"><span style="width:73.9%"></span></div><span>73.9%</span></div>
+      <div class="metric good"><label>Rounds OK</label><div class="bar"><span style="width:0.0%"></span></div><span>0.0%</span></div>
+      <div class="metric warn"><label>JS ability</label><div class="bar"><span style="width:100.0%"></span></div><span>100.0%</span></div>
+      <div class="metric good"><label>Boilerplate</label><div class="bar"><span style="width:100.0%"></span></div><span>100.0%</span></div>
+      <div class="metric "><label>Throughput</label><div class="bar"><span style="width:100.0%"></span></div><span>197.56 urls/s</span></div>
+      <div class="metric warn"><label>Latency</label><div class="bar"><span style="width:92.4%"></span></div><span>60.74 ms</span></div>
+    </article>
+    
+
+    <article class="card">
+      <h3>full_pipeline_reader <span class="score">66.1%</span></h3>
+      <div class="meta"><span class="ok">available</span></div>
+      <div class="metric good"><label>Overall</label><div class="bar"><span style="width:66.1%"></span></div><span>66.1%</span></div>
+      <div class="metric good"><label>Usable</label><div class="bar"><span style="width:75.0%"></span></div><span>75.0%</span></div>
+      <div class="metric good"><label>Recall</label><div class="bar"><span style="width:90.3%"></span></div><span>90.3%</span></div>
+      <div class="metric good"><label>Text F1</label><div class="bar"><span style="width:75.4%"></span></div><span>75.4%</span></div>
+      <div class="metric good"><label>Rounds OK</label><div class="bar"><span style="width:0.0%"></span></div><span>0.0%</span></div>
+      <div class="metric warn"><label>JS ability</label><div class="bar"><span style="width:100.0%"></span></div><span>100.0%</span></div>
+      <div class="metric good"><label>Boilerplate</label><div class="bar"><span style="width:100.0%"></span></div><span>100.0%</span></div>
+      <div class="metric "><label>Throughput</label><div class="bar"><span style="width:12.7%"></span></div><span>25.09 urls/s</span></div>
+      <div class="metric warn"><label>Latency</label><div class="bar"><span style="width:40.0%"></span></div><span>478.35 ms</span></div>
+    </article>
+    
+
+    <article class="card">
+      <h3>http_extractor <span class="score">44.6%</span></h3>
+      <div class="meta"><span class="ok">available</span></div>
+      <div class="metric good"><label>Overall</label><div class="bar"><span style="width:44.6%"></span></div><span>44.6%</span></div>
+      <div class="metric good"><label>Usable</label><div class="bar"><span style="width:66.7%"></span></div><span>66.7%</span></div>
+      <div class="metric good"><label>Recall</label><div class="bar"><span style="width:75.0%"></span></div><span>75.0%</span></div>
+      <div class="metric good"><label>Text F1</label><div class="bar"><span style="width:64.3%"></span></div><span>64.3%</span></div>
+      <div class="metric good"><label>Rounds OK</label><div class="bar"><span style="width:0.0%"></span></div><span>0.0%</span></div>
+      <div class="metric warn"><label>JS ability</label><div class="bar"><span style="width:0.0%"></span></div><span>0.0%</span></div>
+      <div class="metric good"><label>Boilerplate</label><div class="bar"><span style="width:100.0%"></span></div><span>100.0%</span></div>
+      <div class="metric "><label>Throughput</label><div class="bar"><span style="width:7.6%"></span></div><span>15.04 urls/s</span></div>
+      <div class="metric warn"><label>Latency</label><div class="bar"><span style="width:0.0%"></span></div><span>797.82 ms</span></div>
+    </article>
+    
+
+    <article class="card">
+      <h3>scrapling_static <span class="score">32.5%</span></h3>
+      <div class="meta"><span class="ok">available</span></div>
+      <div class="metric good"><label>Overall</label><div class="bar"><span style="width:32.5%"></span></div><span>32.5%</span></div>
+      <div class="metric good"><label>Usable</label><div class="bar"><span style="width:16.7%"></span></div><span>16.7%</span></div>
+      <div class="metric good"><label>Recall</label><div class="bar"><span style="width:83.3%"></span></div><span>83.3%</span></div>
+      <div class="metric good"><label>Text F1</label><div class="bar"><span style="width:70.5%"></span></div><span>70.5%</span></div>
+      <div class="metric good"><label>Rounds OK</label><div class="bar"><span style="width:0.0%"></span></div><span>0.0%</span></div>
+      <div class="metric warn"><label>JS ability</label><div class="bar"><span style="width:0.0%"></span></div><span>0.0%</span></div>
+      <div class="metric good"><label>Boilerplate</label><div class="bar"><span style="width:0.0%"></span></div><span>0.0%</span></div>
+      <div class="metric "><label>Throughput</label><div class="bar"><span style="width:18.2%"></span></div><span>35.97 urls/s</span></div>
+      <div class="metric warn"><label>Latency</label><div class="bar"><span style="width:58.2%"></span></div><span>333.65 ms</span></div>
+    </article>
+    </section>
+
+  <h2>Scenario Winners</h2>
+  <table><thead><tr><th>Scenario</th><th>Use when</th><th>Best profile</th><th>Usable</th><th>Text F1</th><th>Median ms</th></tr></thead><tbody><tr><td>static_html</td><td>mostly static HTML pages</td><td>http_extractor</td><td class='num'>80.0%</td><td class='num'>77.1%</td><td class='num'>797.82</td></tr>
+<tr><td>article_extraction</td><td>articles and redirects</td><td>http_extractor</td><td class='num'>100.0%</td><td class='num'>100.0%</td><td class='num'>797.82</td></tr>
+<tr><td>boilerplate_removal</td><td>navigation-heavy pages</td><td>http_extractor</td><td class='num'>100.0%</td><td class='num'>70.1%</td><td class='num'>797.82</td></tr>
+<tr><td>documentation_page</td><td>developer documentation</td><td>http_extractor</td><td class='num'>100.0%</td><td class='num'>100.0%</td><td class='num'>797.82</td></tr>
+<tr><td>structured_product_page</td><td>product detail pages</td><td>full_pipeline_reader</td><td class='num'>100.0%</td><td class='num'>71.2%</td><td class='num'>478.35</td></tr>
+<tr><td>multi_item_extraction</td><td>listings and discussion threads</td><td>full_pipeline_reader</td><td class='num'>75.0%</td><td class='num'>78.2%</td><td class='num'>478.35</td></tr>
+<tr><td>javascript_required</td><td>client-rendered shell pages</td><td>full_pipeline_reader</td><td class='num'>100.0%</td><td class='num'>71.4%</td><td class='num'>478.35</td></tr>
+<tr><td>latency_tolerance</td><td>slow but valid static pages</td><td>scrapling_static</td><td class='num'>100.0%</td><td class='num'>100.0%</td><td class='num'>333.65</td></tr></tbody></table>
+
+  <h2>Capability Matrix</h2>
+  <table><thead><tr><th>Profile</th><th>static_html</th><th>article_extraction</th><th>boilerplate_removal</th><th>documentation_page</th><th>structured_product_page</th><th>multi_item_extraction</th><th>javascript_required</th><th>latency_tolerance</th></tr></thead><tbody><tr><th>reader_service</th><td class='ok'>100.0% / 74.3%</td><td class='ok'>100.0% / 79.0%</td><td class='ok'>100.0% / 69.2%</td><td class='ok'>100.0% / 74.5%</td><td class='ok'>100.0% / 72.7%</td><td class='ok'>100.0% / 74.7%</td><td class='ok'>100.0% / 71.4%</td><td class='ok'>100.0% / 66.7%</td></tr><tr><th>full_pipeline_reader</th><td class=''>70.0% / 76.2%</td><td class=''>50.0% / 82.3%</td><td class='ok'>100.0% / 69.7%</td><td class='ok'>100.0% / 87.2%</td><td class='ok'>100.0% / 71.2%</td><td class=''>75.0% / 78.2%</td><td class='ok'>100.0% / 71.4%</td><td class='ok'>100.0% / 68.6%</td></tr><tr><th>http_extractor</th><td class='ok'>80.0% / 77.1%</td><td class='ok'>100.0% / 100.0%</td><td class='ok'>100.0% / 70.1%</td><td class='ok'>100.0% / 100.0%</td><td class='ok'>100.0% / 69.6%</td><td class='no'>0.0% / 45.6%</td><td class='no'>0.0% / 0.0%</td><td class='ok'>100.0% / 70.6%</td></tr><tr><th>scrapling_static</th><td class=''>20.0% / 84.6%</td><td class='no'>0.0% / 86.5%</td><td class='no'>0.0% / 30.2%</td><td class='no'>0.0% / 88.6%</td><td class='no'>0.0% / 88.9%</td><td class='no'>0.0% / 89.2%</td><td class='no'>0.0% / 0.0%</td><td class='ok'>100.0% / 100.0%</td></tr></tbody></table>
+
+  <h2>Ranking Table</h2>
+  <table><thead><tr><th>#</th><th>Profile</th><th>Overall</th><th>Usable</th><th>Recall</th><th>Text F1</th><th>Rounds OK</th><th>JS</th><th>Boilerplate</th><th>Median ms</th><th>URLs/s</th></tr></thead><tbody><tr><td>1</td><td>reader_service</td><td class='num'>96.3%</td><td class='num'>100.0%</td><td class='num'>100.0%</td><td class='num'>73.9%</td><td class='num'>0.0%</td><td class='num'>100.0%</td><td class='num'>100.0%</td><td class='num'>60.74</td><td class='num'>197.56</td></tr>
+<tr><td>2</td><td>full_pipeline_reader</td><td class='num'>66.1%</td><td class='num'>75.0%</td><td class='num'>90.3%</td><td class='num'>75.4%</td><td class='num'>0.0%</td><td class='num'>100.0%</td><td class='num'>100.0%</td><td class='num'>478.35</td><td class='num'>25.09</td></tr>
+<tr><td>3</td><td>http_extractor</td><td class='num'>44.6%</td><td class='num'>66.7%</td><td class='num'>75.0%</td><td class='num'>64.3%</td><td class='num'>0.0%</td><td class='num'>0.0%</td><td class='num'>100.0%</td><td class='num'>797.82</td><td class='num'>15.04</td></tr>
+<tr><td>4</td><td>scrapling_static</td><td class='num'>32.5%</td><td class='num'>16.7%</td><td class='num'>83.3%</td><td class='num'>70.5%</td><td class='num'>0.0%</td><td class='num'>0.0%</td><td class='num'>0.0%</td><td class='num'>333.65</td><td class='num'>35.97</td></tr></tbody></table>
+
+  <h2>Metric Glossary</h2>
+  <table><thead><tr><th>Metric</th><th>Meaning</th><th>Calculation</th></tr></thead><tbody><tr><td><code>success_rate</code></td><td>Returned anything</td><td>URLs with non-empty content divided by total URLs. This does not imply quality.</td></tr>
+<tr><td><code>usable_rate</code></td><td>Returned usable content</td><td>A case is usable when snippet recall is at least 80%, forbidden snippets are absent, and normalized length reaches the benchmark threshold.</td></tr>
+<tr><td><code>mean_required_recall</code></td><td>Gold snippet recall</td><td>Average required snippet hits divided by required snippets for each case.</td></tr>
+<tr><td><code>mean_text_f1</code></td><td>Token-level content quality</td><td>Token overlap F1 between extracted content and fixture ground-truth text.</td></tr>
+<tr><td><code>mean_noise_penalty</code></td><td>Boilerplate leakage</td><td>Average forbidden snippet hits divided by forbidden snippets for each case. Lower is better.</td></tr>
+<tr><td><code>javascript_required</code></td><td>JavaScript-rendered page ability</td><td>Usable rate among cases tagged javascript_required.</td></tr>
+<tr><td><code>boilerplate_removal</code></td><td>Template/noise removal ability</td><td>Usable rate among cases tagged boilerplate_removal.</td></tr>
+<tr><td><code>median_ms</code></td><td>Typical runtime</td><td>Median end-to-end runtime across benchmark rounds. Lower is better.</td></tr>
+<tr><td><code>round_success_rate</code></td><td>Profile reliability</td><td>Benchmark rounds with at least one successful result divided by total rounds.</td></tr>
+<tr><td><code>throughput_urls_per_second</code></td><td>Batch throughput</td><td>URL count divided by median runtime in seconds. Higher is better.</td></tr>
+<tr><td><code>overall_score</code></td><td>Heuristic ranking score</td><td>Quality 45% + capability 25% + throughput 20% + latency 10%. Use scenario winners for final decisions.</td></tr></tbody></table>
+
+  <h2>Case Matrix</h2>
+  <table><thead><tr><th>Profile</th><th>static-0</th><th>static-1</th><th>boilerplate-0</th><th>docs-0</th><th>product-0</th><th>listing-0</th><th>forum-0</th><th>table-0</th><th>slow-0</th><th>redirect-0</th><th>shell-0</th><th>shell-1</th></tr></thead><tbody><tr><th>reader_service</th><td class='ok' title="# Reader fixture static-0 Benchmark Article static-0 GOLD-STATIC-PRIMARY_static-0 stable article body for extraction benchmarking. GOLD-STATIC-SECONDARY_static-0 repeated readable paragraph with enough text to pass minimum content thresholds and measure quality. GOLD-STATIC-TERTIARY_static-0 final relevant sentence for">usable</td><td class='ok' title="# Reader fixture static-1 Benchmark Article static-1 GOLD-STATIC-PRIMARY_static-1 stable article body for extraction benchmarking. GOLD-STATIC-SECONDARY_static-1 repeated readable paragraph with enough text to pass minimum content thresholds and measure quality. GOLD-STATIC-TERTIARY_static-1 final relevant sentence for">usable</td><td class='ok' title="# Reader fixture boilerplate-0 Benchmark Boilerplate boilerplate-0 GOLD-BOILERPLATE-PRIMARY_boilerplate-0 dense relevant content surrounded by noisy navigation. GOLD-BOILERPLATE-SECONDARY_boilerplate-0 another relevant sentence for precision checks. Reader fixture body contains deterministic extracted content for fair ">usable</td><td class='ok' title="# Reader fixture docs-0 Benchmark Docs docs-0 GOLD-DOCS-PRIMARY_docs-0 installation guidance for crawler benchmark users. GOLD-DOCS-CODE_docs-0 searcrawl benchmark --profile quick GOLD-DOCS-SECONDARY_docs-0 configuration details with stable option descriptions. Reader fixture body contains deterministic extracted conte">usable</td><td class='ok' title="# Reader fixture product-0 Benchmark Product product-0 GOLD-PRODUCT-NAME_product-0 SearCrawl Test Jacket GOLD-PRODUCT-PRICE_product-0 129.00 GOLD-PRODUCT-DESCRIPTION_product-0 structured product copy with material and availability facts. Reader fixture body contains deterministic extracted content for fair fallback ben">usable</td><td class='ok' title="# Reader fixture listing-0 Benchmark Listing listing-0 GOLD-LISTING-ITEM-A_listing-0 crawler benchmark adapter GOLD-LISTING-ITEM-B_listing-0 reader fallback adapter GOLD-LISTING-ITEM-C_listing-0 browser rendering adapter Reader fixture body contains deterministic extracted content for fair fallback benchmarking, with e">usable</td><td class='ok' title="# Reader fixture forum-0 Benchmark Thread forum-0 GOLD-FORUM-QUESTION_forum-0 how should crawler fallbacks be ordered? GOLD-FORUM-ANSWER_forum-0 use static extraction first and render only shell pages. GOLD-FORUM-FOLLOWUP_forum-0 measure fallback hits separately from total success. Reader fixture body contains determin">usable</td><td class='ok' title="# Reader fixture table-0 Benchmark Data Table table-0 GOLD-TABLE-HEADER_table-0 Profile Usable Median GOLD-TABLE-ROW-A_table-0 http_extractor fast static baseline GOLD-TABLE-ROW-B_table-0 local_playwright rendered fallback Reader fixture body contains deterministic extracted content for fair fallback benchmarking, with">usable</td><td class='ok' title="# Reader fixture slow-0 Benchmark Slow slow-0 GOLD-SLOW-PRIMARY_slow-0 delayed response content for timeout sensitivity. GOLD-SLOW-SECONDARY_slow-0 stable delayed article body. Reader fixture body contains deterministic extracted content for fair fallback benchmarking, with enough stable text to pass minimum length che">usable</td><td class='ok' title="# Reader fixture redirect-0 Benchmark Article redirect-0 GOLD-STATIC-PRIMARY_redirect-0 stable article body for extraction benchmarking. GOLD-STATIC-SECONDARY_redirect-0 repeated readable paragraph with enough text to pass minimum content thresholds and measure quality. GOLD-STATIC-TERTIARY_redirect-0 final relevant se">usable</td><td class='ok' title="# Reader fixture shell-0 Benchmark Shell shell-0 GOLD-JS-PRIMARY_shell-0 rendered client-side content for browser fallback. GOLD-JS-SECONDARY_shell-0 hydrated detail that is absent from the static DOM. Reader fixture body contains deterministic extracted content for fair fallback benchmarking, with enough stable text t">usable</td><td class='ok' title="# Reader fixture shell-1 Benchmark Shell shell-1 GOLD-JS-PRIMARY_shell-1 rendered client-side content for browser fallback. GOLD-JS-SECONDARY_shell-1 hydrated detail that is absent from the static DOM. Reader fixture body contains deterministic extracted content for fair fallback benchmarking, with enough stable text t">usable</td></tr><tr><th>full_pipeline_reader</th><td class='ok' title="Benchmark Article static-0 GOLD-STATIC-PRIMARY_static-0 stable article body for extraction benchmarking. GOLD-STATIC-SECONDARY_static-0 repeated readable paragraph with enough text to pass minimum content thresholds and measure quality. GOLD-STATIC-TERTIARY_static-0 final relevant sentence for recall scoring.">usable</td><td class='ok' title="Benchmark Article static-1 GOLD-STATIC-PRIMARY_static-1 stable article body for extraction benchmarking. GOLD-STATIC-SECONDARY_static-1 repeated readable paragraph with enough text to pass minimum content thresholds and measure quality. GOLD-STATIC-TERTIARY_static-1 final relevant sentence for recall scoring.">usable</td><td class='ok' title="Benchmark Boilerplate boilerplate-0 GOLD-BOILERPLATE-PRIMARY_boilerplate-0 dense relevant content surrounded by noisy navigation. GOLD-BOILERPLATE-SECONDARY_boilerplate-0 another relevant sentence for precision checks. GOLD-BOILERPLATE-PRIMARY_boilerplate-0 dense relevant content surrounded by noisy navigation. GOLD-BO">usable</td><td class='ok' title="Benchmark Docs docs-0 GOLD-DOCS-PRIMARY_docs-0 installation guidance for crawler benchmark users. GOLD-DOCS-CODE_docs-0 searcrawl benchmark --profile quick GOLD-DOCS-SECONDARY_docs-0 configuration details with stable option descriptions.">usable</td><td class='ok' title="Benchmark Product product-0 GOLD-PRODUCT-NAME_product-0 SearCrawl Test Jacket GOLD-PRODUCT-PRICE_product-0 129.00 GOLD-PRODUCT-DESCRIPTION_product-0 structured product copy with material and availability facts. GOLD-PRODUCT-NAME_product-0 SearCrawl Test Jacket GOLD-PRODUCT-PRICE_product-0 129.00 GOLD-PRODUCT-DESCRIPTIO">usable</td><td class='ok' title="Reader fixture listing-0 Benchmark Listing listing-0 GOLD-LISTING-ITEM-A_listing-0 crawler benchmark adapter GOLD-LISTING-ITEM-B_listing-0 reader fallback adapter GOLD-LISTING-ITEM-C_listing-0 browser rendering adapter Reader fixture body contains deterministic extracted content for fair fallback benchmarking, with eno">usable</td><td class='no' title="forbidden_noise | FORUM-HEADER-NOISE_forum-0 login subscribe promoted Benchmark Thread forum-0 GOLD-FORUM-QUESTION_forum-0 how should crawler fallbacks be ordered? GOLD-FORUM-ANSWER_forum-0 use static extraction first and render only shell pages. GOLD-FORUM-FOLLOWUP_forum-0 measure fallback hits separately from total success.">weak</td><td class='no' title="low_required_recall | Benchmark Data Table table-0 | GOLD-TABLE-HEADER_table-0 Profile | Usable | Median | |---|---|---| | GOLD-TABLE-ROW-Atable-0 httpextractor | fast | static baseline | | GOLD-TABLE-ROW-Btable-0 localplaywright | rendered | fallback | | GOLD-TABLE-HEADER_table-0 Profile | Usable | Median | |---|---|---| | GOLD-TABLE-ROW-A">weak</td><td class='ok' title="Benchmark Slow slow-0 GOLD-SLOW-PRIMARY_slow-0 delayed response content for timeout sensitivity. GOLD-SLOW-SECONDARY_slow-0 stable delayed article body. GOLD-SLOW-PRIMARY_slow-0 delayed response content for timeout sensitivity. GOLD-SLOW-SECONDARY_slow-0 stable delayed article body.">usable</td><td class='ok' title="Benchmark Article redirect-0 GOLD-STATIC-PRIMARY_redirect-0 stable article body for extraction benchmarking. GOLD-STATIC-SECONDARY_redirect-0 repeated readable paragraph with enough text to pass minimum content thresholds and measure quality. GOLD-STATIC-TERTIARY_redirect-0 final relevant sentence for recall scoring.">usable</td><td class='ok' title="Reader fixture shell-0 Benchmark Shell shell-0 GOLD-JS-PRIMARY_shell-0 rendered client-side content for browser fallback. GOLD-JS-SECONDARY_shell-0 hydrated detail that is absent from the static DOM. Reader fixture body contains deterministic extracted content for fair fallback benchmarking, with enough stable text to ">usable</td><td class='ok' title="Reader fixture shell-1 Benchmark Shell shell-1 GOLD-JS-PRIMARY_shell-1 rendered client-side content for browser fallback. GOLD-JS-SECONDARY_shell-1 hydrated detail that is absent from the static DOM. Reader fixture body contains deterministic extracted content for fair fallback benchmarking, with enough stable text to ">usable</td></tr><tr><th>http_extractor</th><td class='ok' title="# Benchmark Article static-0 GOLD-STATIC-PRIMARY_static-0 stable article body for extraction benchmarking. GOLD-STATIC-SECONDARY_static-0 repeated readable paragraph with enough text to pass minimum content thresholds and measure quality. GOLD-STATIC-TERTIARY_static-0 final relevant sentence for recall scoring.">usable</td><td class='ok' title="# Benchmark Article static-1 GOLD-STATIC-PRIMARY_static-1 stable article body for extraction benchmarking. GOLD-STATIC-SECONDARY_static-1 repeated readable paragraph with enough text to pass minimum content thresholds and measure quality. GOLD-STATIC-TERTIARY_static-1 final relevant sentence for recall scoring.">usable</td><td class='ok' title="# Benchmark Boilerplate boilerplate-0 GOLD-BOILERPLATE-PRIMARY_boilerplate-0 dense relevant content surrounded by noisy navigation. GOLD-BOILERPLATE-SECONDARY_boilerplate-0 another relevant sentence for precision checks. GOLD-BOILERPLATE-PRIMARY_boilerplate-0 dense relevant content surrounded by noisy navigation. GOLD-">usable</td><td class='ok' title="# Benchmark Docs docs-0 GOLD-DOCS-PRIMARY_docs-0 installation guidance for crawler benchmark users. `GOLD-DOCS-CODE_docs-0 searcrawl benchmark --profile quick` GOLD-DOCS-SECONDARY_docs-0 configuration details with stable option descriptions.">usable</td><td class='ok' title="# Benchmark Product product-0 GOLD-PRODUCT-NAME_product-0 SearCrawl Test Jacket GOLD-PRODUCT-PRICE_product-0 129.00 GOLD-PRODUCT-DESCRIPTION_product-0 structured product copy with material and availability facts. GOLD-PRODUCT-NAME_product-0 SearCrawl Test Jacket GOLD-PRODUCT-PRICE_product-0 129.00 GOLD-PRODUCT-DESCRIPT">usable</td><td class='no' title="missing_content">miss</td><td class='no' title="forbidden_noise | FORUM-HEADER-NOISE_forum-0 login subscribe promoted # Benchmark Thread forum-0 GOLD-FORUM-QUESTION_forum-0 how should crawler fallbacks be ordered? GOLD-FORUM-ANSWER_forum-0 use static extraction first and render only shell pages. GOLD-FORUM-FOLLOWUP_forum-0 measure fallback hits separately from total success.">weak</td><td class='ok' title="# Benchmark Data Table table-0 | GOLD-TABLE-HEADER_table-0 Profile | Usable | Median | |---|---|---| | GOLD-TABLE-ROW-A_table-0 http_extractor | fast | static baseline | | GOLD-TABLE-ROW-B_table-0 local_playwright | rendered | fallback | | GOLD-TABLE-HEADER_table-0 Profile | Usable | Median | |---|---|---| | GOLD-TABLE">usable</td><td class='ok' title="# Benchmark Slow slow-0 GOLD-SLOW-PRIMARY_slow-0 delayed response content for timeout sensitivity. GOLD-SLOW-SECONDARY_slow-0 stable delayed article body. GOLD-SLOW-PRIMARY_slow-0 delayed response content for timeout sensitivity. GOLD-SLOW-SECONDARY_slow-0 stable delayed article body.">usable</td><td class='ok' title="# Benchmark Article redirect-0 GOLD-STATIC-PRIMARY_redirect-0 stable article body for extraction benchmarking. GOLD-STATIC-SECONDARY_redirect-0 repeated readable paragraph with enough text to pass minimum content thresholds and measure quality. GOLD-STATIC-TERTIARY_redirect-0 final relevant sentence for recall scoring.">usable</td><td class='no' title="missing_content">miss</td><td class='no' title="missing_content">miss</td></tr><tr><th>scrapling_static</th><td class='no' title="forbidden_noise | Benchmark Article static-0 GLOBAL-NAVIGATION-NOISE_static-0 Benchmark Article static-0 GOLD-STATIC-PRIMARY_static-0 stable article body for extraction benchmarking. GOLD-STATIC-SECONDARY_static-0 repeated readable paragraph with enough text to pass minimum content thresholds and measure quality. GOLD-STATIC-TERTIARY_st">weak</td><td class='no' title="forbidden_noise | Benchmark Article static-1 GLOBAL-NAVIGATION-NOISE_static-1 Benchmark Article static-1 GOLD-STATIC-PRIMARY_static-1 stable article body for extraction benchmarking. GOLD-STATIC-SECONDARY_static-1 repeated readable paragraph with enough text to pass minimum content thresholds and measure quality. GOLD-STATIC-TERTIARY_st">weak</td><td class='no' title="forbidden_noise | GLOBAL-NAVIGATION-NOISE_boilerplate-0_0 GLOBAL-NAVIGATION-NOISE_boilerplate-0_1 GLOBAL-NAVIGATION-NOISE_boilerplate-0_2 GLOBAL-NAVIGATION-NOISE_boilerplate-0_3 GLOBAL-NAVIGATION-NOISE_boilerplate-0_4 GLOBAL-NAVIGATION-NOISE_boilerplate-0_5 GLOBAL-NAVIGATION-NOISE_boilerplate-0_6 GLOBAL-NAVIGATION-NOISE_boilerplate-0_7 ">weak</td><td class='no' title="forbidden_noise | DOCS-SIDEBAR-NOISE_docs-0 API Reference Changelog Community Benchmark Docs docs-0 GOLD-DOCS-PRIMARY_docs-0 installation guidance for crawler benchmark users. GOLD-DOCS-CODE_docs-0 searcrawl benchmark --profile quick GOLD-DOCS-SECONDARY_docs-0 configuration details with stable option descriptions.">weak</td><td class='no' title="forbidden_noise | SHOP-NAV-NOISE_product-0 cart account sale Benchmark Product product-0 GOLD-PRODUCT-NAME_product-0 SearCrawl Test Jacket GOLD-PRODUCT-PRICE_product-0 129.00 GOLD-PRODUCT-DESCRIPTION_product-0 structured product copy with material and availability facts.">weak</td><td class='no' title="forbidden_noise | LISTING-FILTER-NOISE_listing-0 sort newest cheapest popular Benchmark Listing listing-0 GOLD-LISTING-ITEM-A_listing-0 crawler benchmark adapter GOLD-LISTING-ITEM-B_listing-0 reader fallback adapter GOLD-LISTING-ITEM-C_listing-0 browser rendering adapter">weak</td><td class='no' title="forbidden_noise | FORUM-HEADER-NOISE_forum-0 login subscribe promoted Benchmark Thread forum-0 GOLD-FORUM-QUESTION_forum-0 how should crawler fallbacks be ordered? GOLD-FORUM-ANSWER_forum-0 use static extraction first and render only shell pages. GOLD-FORUM-FOLLOWUP_forum-0 measure fallback hits separately from total success.">weak</td><td class='ok' title="Benchmark Data Table table-0 GOLD-TABLE-HEADER_table-0 Profile Usable Median GOLD-TABLE-ROW-A_table-0 http_extractor fast static baseline GOLD-TABLE-ROW-B_table-0 local_playwright rendered fallback">usable</td><td class='ok' title="Benchmark Slow slow-0 GOLD-SLOW-PRIMARY_slow-0 delayed response content for timeout sensitivity. GOLD-SLOW-SECONDARY_slow-0 stable delayed article body.">usable</td><td class='no' title="forbidden_noise | Benchmark Article redirect-0 GLOBAL-NAVIGATION-NOISE_redirect-0 Benchmark Article redirect-0 GOLD-STATIC-PRIMARY_redirect-0 stable article body for extraction benchmarking. GOLD-STATIC-SECONDARY_redirect-0 repeated readable paragraph with enough text to pass minimum content thresholds and measure quality. GOLD-STATIC-T">weak</td><td class='no' title="missing_content">miss</td><td class='no' title="missing_content">miss</td></tr></tbody></table>
+
+  <h2>Raw Recommendations</h2>
+  <pre>[
+  {
+    &quot;name&quot;: &quot;reader_service&quot;,
+    &quot;positioning&quot;: &quot;javascript_fallback_candidate&quot;,
+    &quot;available&quot;: true,
+    &quot;usable_rate&quot;: 1.0,
+    &quot;text_f1&quot;: 0.7385,
+    &quot;median_ms&quot;: 60.74,
+    &quot;throughput_urls_per_second&quot;: 197.56,
+    &quot;javascript_usable_rate&quot;: 1.0,
+    &quot;boilerplate_usable_rate&quot;: 1.0
+  },
+  {
+    &quot;name&quot;: &quot;full_pipeline_reader&quot;,
+    &quot;positioning&quot;: &quot;javascript_fallback_candidate&quot;,
+    &quot;available&quot;: true,
+    &quot;usable_rate&quot;: 0.75,
+    &quot;text_f1&quot;: 0.754,
+    &quot;median_ms&quot;: 478.35,
+    &quot;throughput_urls_per_second&quot;: 25.09,
+    &quot;javascript_usable_rate&quot;: 1.0,
+    &quot;boilerplate_usable_rate&quot;: 1.0
+  },
+  {
+    &quot;name&quot;: &quot;http_extractor&quot;,
+    &quot;positioning&quot;: &quot;primary_fast_path_candidate&quot;,
+    &quot;available&quot;: true,
+    &quot;usable_rate&quot;: 0.6667,
+    &quot;text_f1&quot;: 0.6429,
+    &quot;median_ms&quot;: 797.82,
+    &quot;throughput_urls_per_second&quot;: 15.04,
+    &quot;javascript_usable_rate&quot;: 0.0,
+    &quot;boilerplate_usable_rate&quot;: 1.0
+  },
+  {
+    &quot;name&quot;: &quot;scrapling_static&quot;,
+    &quot;positioning&quot;: &quot;limited_or_specialized_candidate&quot;,
+    &quot;available&quot;: true,
+    &quot;usable_rate&quot;: 0.1667,
+    &quot;text_f1&quot;: 0.7048,
+    &quot;median_ms&quot;: 333.65,
+    &quot;throughput_urls_per_second&quot;: 35.97,
+    &quot;javascript_usable_rate&quot;: 0.0,
+    &quot;boilerplate_usable_rate&quot;: 0.0
+  }
+]</pre>
+</main>
+</body>
+</html>

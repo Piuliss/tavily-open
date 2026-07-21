@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import time
 from dataclasses import asdict, dataclass
-from typing import Optional, Protocol
+from typing import Protocol
 
 import httpx
 from loguru import logger
@@ -14,12 +14,19 @@ from loguru import logger
 from searcrawl.config import (
     BRAVE_SEARCH_API_BASE,
     BRAVE_SEARCH_API_KEY,
+    EXTERNAL_SEARCH_ENABLED,
+    EXTERNAL_SEARCH_FALLBACK_ONLY,
+    LOCAL_INDEX_MIN_RESULTS,
     SEARCH_LANGUAGE,
+    SEARCH_ROUTE_PROVIDERS,
+    SEARCH_ROUTER_MIN_RESULTS,
     SEARXNG_API_BASE,
     SEARXNG_HOST,
     SEARXNG_PORT,
     SEARXNG_TIMEOUT_SECONDS,
+    SEARXNG_URL,
 )
+from searcrawl.local_index import LocalIndex
 
 
 @dataclass
@@ -66,7 +73,7 @@ class SearchProvider(Protocol):
 class SearXNGSearchProvider:
     """Provider backed by a SearXNG instance."""
 
-    def __init__(self, client: Optional[httpx.AsyncClient] = None) -> None:
+    def __init__(self, client: httpx.AsyncClient | None = None) -> None:
         self.client = client
 
     async def search(self, request: SearchProviderRequest) -> SearchProviderResponse:
@@ -90,9 +97,10 @@ class SearXNGSearchProvider:
                 ),
                 "User-Agent": "Sear-Crawl4AI/1.0.0",
                 "Accept": "*/*",
-                "Host": f"{SEARXNG_HOST}:{SEARXNG_PORT}",
                 "Connection": "keep-alive",
             }
+            if not SEARXNG_URL:
+                headers["Host"] = f"{SEARXNG_HOST}:{SEARXNG_PORT}"
             response = await client.post(SEARXNG_API_BASE, data=form_data, headers=headers)
             response.raise_for_status()
             payload = response.json()
@@ -127,7 +135,7 @@ class BraveSearchProvider:
 
     def __init__(
         self,
-        client: Optional[httpx.AsyncClient] = None,
+        client: httpx.AsyncClient | None = None,
         api_key: str = BRAVE_SEARCH_API_KEY,
         api_base: str = BRAVE_SEARCH_API_BASE,
     ) -> None:
@@ -176,12 +184,130 @@ class BraveSearchProvider:
                 await client.aclose()
 
 
+class LocalIndexSearchProvider:
+    """Provider backed by the accumulated local SQLite index."""
+
+    def __init__(self, local_index: LocalIndex | None = None) -> None:
+        self.local_index = local_index
+
+    async def search(self, request: SearchProviderRequest) -> SearchProviderResponse:
+        started = time.perf_counter()
+        if self.local_index is None:
+            return SearchProviderResponse(provider="local", hits=[], request_ms=0.0)
+
+        documents = await self.local_index.search(request.query, request.limit)
+        hits = [
+            SearchHit(
+                url=document.url,
+                title=document.title,
+                snippet=document.snippet,
+                provider="local",
+            )
+            for document in documents
+        ]
+        request_ms = round((time.perf_counter() - started) * 1000, 2)
+        logger.info(f"Local index provider returned {len(hits)} hits in {request_ms:.2f}ms")
+        return SearchProviderResponse(provider="local", hits=hits, request_ms=request_ms)
+
+
+class SearchRouterProvider:
+    """
+    Low-cost routing provider.
+
+    It prefers local results, then SearXNG, and only calls external paid APIs when enabled.
+    """
+
+    EXTERNAL_PROVIDERS = {"brave"}
+
+    def __init__(
+        self,
+        client: httpx.AsyncClient | None = None,
+        local_index: LocalIndex | None = None,
+        route_providers: str = SEARCH_ROUTE_PROVIDERS,
+        external_search_enabled: bool = EXTERNAL_SEARCH_ENABLED,
+        external_search_fallback_only: bool = EXTERNAL_SEARCH_FALLBACK_ONLY,
+        min_results: int = SEARCH_ROUTER_MIN_RESULTS,
+    ) -> None:
+        self.client = client
+        self.local_index = local_index
+        self.route_provider_names = [
+            provider.strip().lower()
+            for provider in route_providers.split(",")
+            if provider.strip()
+        ]
+        self.external_search_enabled = external_search_enabled
+        self.external_search_fallback_only = external_search_fallback_only
+        self.min_results = min_results
+
+    async def search(self, request: SearchProviderRequest) -> SearchProviderResponse:
+        started = time.perf_counter()
+        merged_hits: list[SearchHit] = []
+        seen_urls: set[str] = set()
+        used_providers: list[str] = []
+
+        for provider_name in self.route_provider_names:
+            normalized_name = "local" if provider_name == "local_index" else provider_name
+            if normalized_name in self.EXTERNAL_PROVIDERS and not self.external_search_enabled:
+                logger.debug(f"Skipping external search provider '{normalized_name}'")
+                continue
+            if (
+                normalized_name in self.EXTERNAL_PROVIDERS
+                and self.external_search_fallback_only
+                and len(merged_hits) >= self.min_results
+            ):
+                logger.debug(
+                    f"Skipping external search provider '{normalized_name}' because fallback "
+                    "threshold is already satisfied"
+                )
+                continue
+            if normalized_name == "local" and len(merged_hits) >= LOCAL_INDEX_MIN_RESULTS:
+                continue
+
+            try:
+                provider = create_search_provider(
+                    normalized_name,
+                    client=self.client,
+                    local_index=self.local_index,
+                )
+                provider_response = await provider.search(request)
+            except Exception as exc:
+                logger.warning(f"Search provider '{normalized_name}' failed: {exc}")
+                continue
+
+            used_providers.append(provider_response.provider)
+            for hit in provider_response.hits:
+                if hit.url in seen_urls:
+                    continue
+                seen_urls.add(hit.url)
+                merged_hits.append(hit)
+                if len(merged_hits) >= request.limit:
+                    break
+
+            if len(merged_hits) >= request.limit:
+                break
+            if len(merged_hits) >= self.min_results and normalized_name != "local":
+                break
+
+        request_ms = round((time.perf_counter() - started) * 1000, 2)
+        provider_label = "router" if not used_providers else f"router:{'+'.join(used_providers)}"
+        return SearchProviderResponse(
+            provider=provider_label,
+            hits=merged_hits[: request.limit],
+            request_ms=request_ms,
+        )
+
+
 def create_search_provider(
     provider_name: str,
-    client: Optional[httpx.AsyncClient] = None,
+    client: httpx.AsyncClient | None = None,
+    local_index: LocalIndex | None = None,
 ) -> SearchProvider:
     """Create a search provider by name."""
     normalized_name = provider_name.strip().lower()
+    if normalized_name in {"router", "auto"}:
+        return SearchRouterProvider(client=client, local_index=local_index)
+    if normalized_name in {"local", "local_index"}:
+        return LocalIndexSearchProvider(local_index=local_index)
     if normalized_name == "searxng":
         return SearXNGSearchProvider(client=client)
     if normalized_name == "brave":

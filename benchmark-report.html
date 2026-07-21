@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Crawler Benchmark Report</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f7f8fa;
+      --panel: #ffffff;
+      --text: #1f2933;
+      --muted: #667085;
+      --border: #d9dee7;
+      --green: #168a55;
+      --blue: #2463eb;
+      --amber: #b7791f;
+      --red: #c2410c;
+    }
+    body {
+      margin: 0;
+      font: 14px/1.5 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: var(--text);
+      background: var(--bg);
+    }
+    main { max-width: 1180px; margin: 0 auto; padding: 28px; }
+    h1 { margin: 0 0 8px; font-size: 28px; }
+    h2 { margin: 28px 0 12px; font-size: 18px; }
+    .meta { color: var(--muted); margin-bottom: 20px; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 14px; }
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 14px;
+      box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04);
+    }
+    .card h3 { margin: 0 0 8px; font-size: 16px; display: flex; justify-content: space-between; gap: 8px; }
+    .score { font-variant-numeric: tabular-nums; color: var(--blue); }
+    .metric { display: grid; grid-template-columns: 120px 1fr 64px; align-items: center; gap: 8px; margin: 8px 0; }
+    .metric label { color: var(--muted); }
+    .bar { height: 8px; background: #edf1f7; border-radius: 999px; overflow: hidden; }
+    .bar span { display:block; height:100%; background: var(--blue); border-radius: inherit; }
+    .warn span { background: var(--amber); }
+    .good span { background: var(--green); }
+    .bad span { background: var(--red); }
+    table { width: 100%; border-collapse: collapse; background: var(--panel); border: 1px solid var(--border); }
+    th, td { padding: 9px 10px; border-bottom: 1px solid var(--border); text-align: left; }
+    th { background: #eef2f7; font-weight: 650; }
+    td.num { text-align: right; font-variant-numeric: tabular-nums; }
+    .pill { padding: 2px 7px; border-radius: 999px; background: #edf1f7; color: var(--muted); font-size: 12px; }
+    .ok { color: var(--green); font-weight: 650; }
+    .no { color: var(--red); font-weight: 650; }
+    pre { overflow: auto; background: #111827; color: #d1d5db; padding: 12px; border-radius: 8px; }
+  </style>
+</head>
+<body>
+<main>
+  <h1>Crawler Benchmark Report</h1>
+  <div class="meta">
+    Rounds: <strong>1</strong> ·
+    URLs: <strong>6</strong> ·
+    Profiles: <strong>local_playwright, scrapling_static, scrapling_dynamic</strong>
+  </div>
+
+  <h2>Profile Scorecards</h2>
+  <section class="grid">
+    <article class="card">
+      <h3>scrapling_static <span class="score">47.0%</span></h3>
+      <div class="meta"><span class="ok">available</span></div>
+      <div class="metric good"><label>Overall</label><div class="bar"><span style="width:47.0%"></span></div><span>47.0%</span></div>
+      <div class="metric good"><label>Usable</label><div class="bar"><span style="width:16.7%"></span></div><span>16.7%</span></div>
+      <div class="metric good"><label>Recall</label><div class="bar"><span style="width:66.7%"></span></div><span>66.7%</span></div>
+      <div class="metric warn"><label>JS ability</label><div class="bar"><span style="width:0.0%"></span></div><span>0.0%</span></div>
+      <div class="metric good"><label>Boilerplate</label><div class="bar"><span style="width:0.0%"></span></div><span>0.0%</span></div>
+      <div class="metric "><label>Throughput</label><div class="bar"><span style="width:100.0%"></span></div><span>9.66 urls/s</span></div>
+      <div class="metric warn"><label>Latency</label><div class="bar"><span style="width:93.8%"></span></div><span>621.43 ms</span></div>
+    </article>
+    
+
+    <article class="card">
+      <h3>local_playwright <span class="score">14.8%</span></h3>
+      <div class="meta"><span class="ok">available</span></div>
+      <div class="metric good"><label>Overall</label><div class="bar"><span style="width:14.8%"></span></div><span>14.8%</span></div>
+      <div class="metric good"><label>Usable</label><div class="bar"><span style="width:16.7%"></span></div><span>16.7%</span></div>
+      <div class="metric good"><label>Recall</label><div class="bar"><span style="width:16.7%"></span></div><span>16.7%</span></div>
+      <div class="metric warn"><label>JS ability</label><div class="bar"><span style="width:0.0%"></span></div><span>0.0%</span></div>
+      <div class="metric good"><label>Boilerplate</label><div class="bar"><span style="width:0.0%"></span></div><span>0.0%</span></div>
+      <div class="metric "><label>Throughput</label><div class="bar"><span style="width:11.6%"></span></div><span>1.12 urls/s</span></div>
+      <div class="metric warn"><label>Latency</label><div class="bar"><span style="width:46.9%"></span></div><span>5341.88 ms</span></div>
+    </article>
+    
+
+    <article class="card">
+      <h3>scrapling_dynamic <span class="score">0.0%</span></h3>
+      <div class="meta"><span class="no">unavailable</span></div>
+      <div class="metric good"><label>Overall</label><div class="bar"><span style="width:0.0%"></span></div><span>0.0%</span></div>
+      <div class="metric good"><label>Usable</label><div class="bar"><span style="width:0.0%"></span></div><span>0.0%</span></div>
+      <div class="metric good"><label>Recall</label><div class="bar"><span style="width:0.0%"></span></div><span>0.0%</span></div>
+      <div class="metric warn"><label>JS ability</label><div class="bar"><span style="width:0.0%"></span></div><span>0.0%</span></div>
+      <div class="metric good"><label>Boilerplate</label><div class="bar"><span style="width:0.0%"></span></div><span>0.0%</span></div>
+      <div class="metric "><label>Throughput</label><div class="bar"><span style="width:6.2%"></span></div><span>0.60 urls/s</span></div>
+      <div class="metric warn"><label>Latency</label><div class="bar"><span style="width:0.0%"></span></div><span>10068.59 ms</span></div>
+    </article>
+    </section>
+
+  <h2>Ranking Table</h2>
+  <table><thead><tr><th>#</th><th>Profile</th><th>Overall</th><th>Usable</th><th>Recall</th><th>JS</th><th>Boilerplate</th><th>Median ms</th><th>URLs/s</th></tr></thead><tbody><tr><td>1</td><td>scrapling_static</td><td class='num'>47.0%</td><td class='num'>16.7%</td><td class='num'>66.7%</td><td class='num'>0.0%</td><td class='num'>0.0%</td><td class='num'>621.43</td><td class='num'>9.66</td></tr>
+<tr><td>2</td><td>local_playwright</td><td class='num'>14.8%</td><td class='num'>16.7%</td><td class='num'>16.7%</td><td class='num'>0.0%</td><td class='num'>0.0%</td><td class='num'>5341.88</td><td class='num'>1.12</td></tr>
+<tr><td>3</td><td>scrapling_dynamic</td><td class='num'>0.0%</td><td class='num'>0.0%</td><td class='num'>0.0%</td><td class='num'>0.0%</td><td class='num'>0.0%</td><td class='num'>10068.59</td><td class='num'>0.60</td></tr></tbody></table>
+
+  <h2>Metric Glossary</h2>
+  <table><thead><tr><th>Metric</th><th>Meaning</th><th>Calculation</th></tr></thead><tbody><tr><td><code>success_rate</code></td><td>是否返回了内容</td><td>有非空内容的 URL 数 / 总 URL 数。只说明抓到了东西，不代表内容质量好。</td></tr>
+<tr><td><code>usable_rate</code></td><td>是否足够可用</td><td>可用 URL 数 / 总 URL 数。单个 URL 需要满足：required snippet 命中率 &gt;= 80%、没有 forbidden snippet、正文长度达到阈值。</td></tr>
+<tr><td><code>mean_required_recall</code></td><td>黄金内容召回率</td><td>每个 case 的 required snippet 命中数 / required snippet 总数，然后取平均。</td></tr>
+<tr><td><code>mean_noise_penalty</code></td><td>噪声泄漏率</td><td>每个 case 的 forbidden snippet 命中数 / forbidden snippet 总数，然后取平均。越低越好。</td></tr>
+<tr><td><code>javascript_required</code></td><td>JS 页面能力</td><td>只看带 javascript_required 标签的 case，在这些 case 上计算 usable_rate。</td></tr>
+<tr><td><code>boilerplate_removal</code></td><td>去模板噪声能力</td><td>只看带 boilerplate_removal 标签的 case，在这些 case 上计算 usable_rate。</td></tr>
+<tr><td><code>median_ms</code></td><td>典型耗时</td><td>多轮 benchmark 的端到端耗时中位数。越低越好。</td></tr>
+<tr><td><code>p95_ms</code></td><td>慢尾耗时</td><td>多轮 benchmark 的 95 分位耗时。越低越好。</td></tr>
+<tr><td><code>jitter_ms</code></td><td>稳定性波动</td><td>多轮 benchmark 最大耗时 - 最小耗时。越低说明越稳定。</td></tr>
+<tr><td><code>throughput_urls_per_second</code></td><td>吞吐</td><td>URL 数 / median_ms 换算出的秒数。越高越好。</td></tr>
+<tr><td><code>overall_score</code></td><td>综合排序分</td><td>quality 45% + capability 25% + throughput 20% + latency 10%。这是用于排序的启发式权重，不是绝对标准。</td></tr></tbody></table>
+
+  <h2>Case Matrix</h2>
+  <table><thead><tr><th>Profile</th><th>static-0</th><th>static-1</th><th>boilerplate-0</th><th>slow-0</th><th>shell-0</th><th>shell-1</th></tr></thead><tbody><tr><th>scrapling_static</th><td class='no'>weak</td><td class='no'>weak</td><td class='no'>weak</td><td class='ok'>usable</td><td class='no'>miss</td><td class='no'>miss</td></tr><tr><th>local_playwright</th><td class='ok'>usable</td><td class='no'>miss</td><td class='no'>weak</td><td class='no'>weak</td><td class='no'>weak</td><td class='no'>miss</td></tr><tr><th>scrapling_dynamic</th><td class='no'>miss</td><td class='no'>miss</td><td class='no'>miss</td><td class='no'>miss</td><td class='no'>miss</td><td class='no'>miss</td></tr></tbody></table>
+
+  <h2>Raw Recommendations</h2>
+  <pre>[
+  {
+    &quot;name&quot;: &quot;scrapling_static&quot;,
+    &quot;available&quot;: true,
+    &quot;usable_rate&quot;: 0.1667,
+    &quot;median_ms&quot;: 621.43,
+    &quot;throughput_urls_per_second&quot;: 9.66,
+    &quot;javascript_usable_rate&quot;: 0.0,
+    &quot;boilerplate_usable_rate&quot;: 0.0
+  },
+  {
+    &quot;name&quot;: &quot;local_playwright&quot;,
+    &quot;available&quot;: true,
+    &quot;usable_rate&quot;: 0.1667,
+    &quot;median_ms&quot;: 5341.88,
+    &quot;throughput_urls_per_second&quot;: 1.12,
+    &quot;javascript_usable_rate&quot;: 0.0,
+    &quot;boilerplate_usable_rate&quot;: 0.0
+  },
+  {
+    &quot;name&quot;: &quot;scrapling_dynamic&quot;,
+    &quot;available&quot;: false,
+    &quot;usable_rate&quot;: 0.0,
+    &quot;median_ms&quot;: 10068.59,
+    &quot;throughput_urls_per_second&quot;: 0.6,
+    &quot;javascript_usable_rate&quot;: 0.0,
+    &quot;boilerplate_usable_rate&quot;: 0.0
+  }
+]</pre>
+</main>
+</body>
+</html>

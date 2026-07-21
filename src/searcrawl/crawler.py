@@ -3,8 +3,10 @@ Crawler Module - Provides web crawling and content processing functionality.
 """
 
 import asyncio
+import inspect
 import re
 import time
+from collections.abc import Awaitable, Callable, Sequence
 from typing import Any, Optional
 
 import aiohttp
@@ -18,7 +20,7 @@ from fastapi import HTTPException
 from loguru import logger
 
 from .anti_crawl import AntiCrawlConfig, ProxyConfig, ProxyType
-from .browser import BrowserBackend
+from .browser import BrowserBackend, ObscuraBrowserBackend
 from .cache import CacheManager
 from .config import (
     ANTI_CRAWL_ENABLED,
@@ -29,6 +31,9 @@ from .config import (
     BROWSER_REMOTE_TIMEOUT_SECONDS,
     BROWSERLESS_WS_URL,
     CONTENT_FILTER_THRESHOLD,
+    CRAWL_EXTRACTION_STRATEGY,
+    CRAWL_MIN_QUALITY_SCORE,
+    CRAWL_QUALITY_GATE_ENABLED,
     CUSTOM_USER_AGENTS,
     DISABLED_ENGINES,
     ENABLE_BROWSER_HEADERS,
@@ -42,21 +47,32 @@ from .config import (
     HTTP_EXTRACTOR_TIMEOUT_SECONDS,
     MAX_REQUEST_DELAY,
     MIN_REQUEST_DELAY,
+    OBSCURA_ALLOW_PRIVATE_NETWORK,
+    OBSCURA_BINARY,
+    OBSCURA_DUMP_FORMAT,
+    OBSCURA_MAX_CONCURRENCY,
+    OBSCURA_STEALTH_ENABLED,
+    OBSCURA_TIMEOUT_SECONDS,
+    OBSCURA_WAIT_UNTIL,
     PROXY_LIST,
     PROXY_ROTATION_MODE,
     READER_ENABLED,
     READER_MIN_CONTENT_LENGTH,
     READER_TIMEOUT_SECONDS,
     SEARCH_LANGUAGE,
-    SEARXNG_BASE_PATH,
+    SEARXNG_API_BASE,
     SEARXNG_HOST,
     SEARXNG_PORT,
     SEARXNG_TIMEOUT_SECONDS,
+    SEARXNG_URL,
     USE_MOBILE_AGENTS,
     WORD_COUNT_THRESHOLD,
 )
 from .extractor import fetch_with_http_extractor
+from .quality import assess_content_quality
 from .reader import fetch_with_reader
+
+ReaderUrlProvider = Callable[[], Awaitable[Sequence[str]] | Sequence[str]]
 
 
 class WebCrawler:
@@ -70,14 +86,27 @@ class WebCrawler:
         reader_semaphore: Optional[asyncio.Semaphore] = None,
         page_client: Optional[httpx.AsyncClient] = None,
         http_semaphore: Optional[asyncio.Semaphore] = None,
+        reader_url_provider: Optional[ReaderUrlProvider] = None,
     ) -> None:
         self.crawler = None
         self.cache_manager = cache_manager
         self.anti_crawl_config = anti_crawl_config or self._create_default_anti_crawl_config()
         self.reader_session = reader_session
         self.reader_semaphore = reader_semaphore
+        self.reader_url_provider = reader_url_provider
         self.page_client = page_client
         self.http_semaphore = http_semaphore
+        self.obscura_browser_backend = ObscuraBrowserBackend(
+            anti_crawl_config=self.anti_crawl_config,
+            binary=OBSCURA_BINARY,
+            enabled=BROWSER_BACKEND in {"obscura", "hybrid"},
+            max_concurrency=OBSCURA_MAX_CONCURRENCY,
+            timeout_seconds=OBSCURA_TIMEOUT_SECONDS,
+            stealth_enabled=OBSCURA_STEALTH_ENABLED,
+            wait_until=OBSCURA_WAIT_UNTIL,
+            dump_format=OBSCURA_DUMP_FORMAT,
+            allow_private_network=OBSCURA_ALLOW_PRIVATE_NETWORK,
+        )
         self.remote_browser_backend = BrowserBackend(
             name="remote",
             anti_crawl_config=self.anti_crawl_config,
@@ -170,6 +199,7 @@ class WebCrawler:
 
     async def close(self) -> None:
         """Close any owned resources."""
+        await self.obscura_browser_backend.close()
         await self.remote_browser_backend.close()
         await self.local_browser_backend.close()
 
@@ -204,10 +234,15 @@ class WebCrawler:
     def process_result_content(cls, result: dict[str, str]) -> dict[str, str]:
         """Convert a crawl result into the response payload."""
         plain_text = cls.convert_markdown_to_plain_text(result["content"])
-        return {
+        processed = {
             "content": plain_text,
             "reference": result["reference"],
         }
+        if result.get("source_stage"):
+            processed["source_stage"] = result["source_stage"]
+        if result.get("quality_score") is not None:
+            processed["quality_score"] = result["quality_score"]
+        return processed
 
     @staticmethod
     async def make_searxng_request(
@@ -235,16 +270,16 @@ class WebCrawler:
                 "Cookie": f"disabled_engines={disabled_engines};enabled_engines={enabled_engines};method=POST",
                 "User-Agent": "Sear-Crawl4AI/1.0.0",
                 "Accept": "*/*",
-                "Host": f"{SEARXNG_HOST}:{SEARXNG_PORT}",
                 "Connection": "keep-alive",
             }
+            if not SEARXNG_URL:
+                headers["Host"] = f"{SEARXNG_HOST}:{SEARXNG_PORT}"
 
-            url = f"http://{SEARXNG_HOST}:{SEARXNG_PORT}{SEARXNG_BASE_PATH}"
             if client is None:
                 client = httpx.AsyncClient(timeout=httpx.Timeout(SEARXNG_TIMEOUT_SECONDS))
 
             logger.info(f"Sending search request to SearXNG: {query}")
-            response = await client.post(url, data=form_data, headers=headers)
+            response = await client.post(SEARXNG_API_BASE, data=form_data, headers=headers)
             response.raise_for_status()
             logger.info(
                 f"SearXNG request completed in {(time.perf_counter() - request_started) * 1000:.2f}ms"
@@ -286,17 +321,45 @@ class WebCrawler:
     def _merge_stage_results(
         urls: list[str],
         stage_results: list[Optional[dict[str, str]]],
+        stage_name: str,
+        instruction: str = "",
+        quality_gate_enabled: bool = False,
+        min_content_length: int = 300,
     ) -> tuple[list[dict[str, str]], list[str]]:
         successful_results: list[dict[str, str]] = []
         pending_urls: list[str] = []
         for url, result in zip(urls, stage_results):
-            if result:
-                successful_results.append(result)
-            else:
+            if not result:
                 pending_urls.append(url)
+                continue
+
+            quality = assess_content_quality(
+                result.get("content"),
+                query=instruction,
+                min_content_length=min_content_length,
+                min_score=CRAWL_MIN_QUALITY_SCORE,
+            )
+            if quality_gate_enabled and not quality.usable:
+                logger.debug(
+                    f"{stage_name} result for {url} rejected by quality gate: {quality.reasons}"
+                )
+                pending_urls.append(url)
+                continue
+
+            enriched_result = {
+                **result,
+                "source_stage": stage_name,
+                "quality_score": quality.score,
+            }
+            successful_results.append(enriched_result)
         return successful_results, pending_urls
 
-    async def _run_http_stage(self, urls: list[str]) -> tuple[list[dict[str, str]], list[str]]:
+    async def _run_http_stage(
+        self,
+        urls: list[str],
+        instruction: str,
+        quality_gate_enabled: bool = False,
+    ) -> tuple[list[dict[str, str]], list[str]]:
         if not urls or not HTTP_EXTRACTOR_ENABLED or self.page_client is None:
             return [], urls
 
@@ -311,12 +374,25 @@ class WebCrawler:
             for url in urls
         ]
         stage_results = await asyncio.gather(*tasks)
-        return self._merge_stage_results(urls, stage_results)
+        return self._merge_stage_results(
+            urls,
+            stage_results,
+            stage_name="fast_http",
+            instruction=instruction,
+            quality_gate_enabled=quality_gate_enabled,
+            min_content_length=HTTP_EXTRACTOR_MIN_CONTENT_LENGTH,
+        )
 
-    async def _run_reader_stage(self, urls: list[str]) -> tuple[list[dict[str, str]], list[str]]:
+    async def _run_reader_stage(
+        self,
+        urls: list[str],
+        instruction: str,
+        quality_gate_enabled: bool = False,
+    ) -> tuple[list[dict[str, str]], list[str]]:
         if not urls or not READER_ENABLED:
             return [], urls
 
+        reader_urls = await self._get_reader_urls()
         tasks = [
             fetch_with_reader(
                 url,
@@ -324,11 +400,34 @@ class WebCrawler:
                 semaphore=self.reader_semaphore,
                 timeout_seconds=READER_TIMEOUT_SECONDS,
                 min_content_length=READER_MIN_CONTENT_LENGTH,
+                reader_urls=reader_urls,
             )
             for url in urls
         ]
         stage_results = await asyncio.gather(*tasks)
-        return self._merge_stage_results(urls, stage_results)
+        return self._merge_stage_results(
+            urls,
+            stage_results,
+            stage_name="reader",
+            instruction=instruction,
+            quality_gate_enabled=quality_gate_enabled,
+            min_content_length=READER_MIN_CONTENT_LENGTH,
+        )
+
+    async def _get_reader_urls(self) -> Optional[list[str]]:
+        """Resolve dynamic Reader endpoints, falling back inside fetch_with_reader."""
+        if self.reader_url_provider is None:
+            return None
+
+        try:
+            configured_urls = self.reader_url_provider()
+            if inspect.isawaitable(configured_urls):
+                configured_urls = await configured_urls
+            endpoints = [endpoint.strip().rstrip("/") for endpoint in configured_urls if endpoint]
+            return list(dict.fromkeys(endpoints)) or None
+        except Exception as exc:
+            logger.warning(f"Failed to resolve dynamic Reader endpoints: {exc}")
+            return None
 
     async def _run_browser_stage(
         self,
@@ -341,7 +440,117 @@ class WebCrawler:
         if ANTI_CRAWL_ENABLED and self.anti_crawl_config.enable_request_delay:
             await self.anti_crawl_config.apply_delay_async()
 
-        return await backend.fetch_urls(urls, self._create_browser_run_config())
+        results, pending_urls = await backend.fetch_urls(urls, self._create_browser_run_config())
+        merged_results, _ = self._merge_stage_results(
+            urls,
+            [
+                next((result for result in results if result["reference"] == url), None)
+                for url in urls
+            ],
+            stage_name=f"{backend.name}_browser",
+            instruction="",
+            quality_gate_enabled=False,
+            min_content_length=HTTP_EXTRACTOR_MIN_CONTENT_LENGTH,
+        )
+        return merged_results, pending_urls
+
+    async def _run_obscura_stage(
+        self,
+        urls: list[str],
+    ) -> tuple[list[dict[str, str]], list[str]]:
+        if not urls:
+            return [], urls
+
+        if ANTI_CRAWL_ENABLED and self.anti_crawl_config.enable_request_delay:
+            await self.anti_crawl_config.apply_delay_async()
+
+        results, pending_urls = await self.obscura_browser_backend.fetch_urls(
+            urls,
+            min_content_length=HTTP_EXTRACTOR_MIN_CONTENT_LENGTH,
+        )
+        merged_results, _ = self._merge_stage_results(
+            urls,
+            [
+                next((result for result in results if result["reference"] == url), None)
+                for url in urls
+            ],
+            stage_name="obscura_browser",
+            instruction="",
+            quality_gate_enabled=False,
+            min_content_length=HTTP_EXTRACTOR_MIN_CONTENT_LENGTH,
+        )
+        return merged_results, pending_urls
+
+    async def _run_configured_extraction_stages(
+        self,
+        pending_urls: list[str],
+        instruction: str,
+        timings_ms: dict[str, float],
+        stage_counts: dict[str, int],
+    ) -> tuple[list[dict[str, str]], list[str]]:
+        """Run extraction stages in the configured benchmark-informed order."""
+        all_results: list[dict[str, str]] = []
+        strategy = CRAWL_EXTRACTION_STRATEGY if CRAWL_EXTRACTION_STRATEGY else "reader_first"
+
+        if strategy == "http_first":
+            stage_order = ["fast_http", "reader", "obscura_browser", "remote_browser", "local_browser"]
+        elif strategy == "quality_gated":
+            stage_order = ["fast_http", "reader", "obscura_browser", "remote_browser", "local_browser"]
+        else:
+            stage_order = ["reader", "fast_http", "obscura_browser", "remote_browser", "local_browser"]
+
+        for stage_name in stage_order:
+            if not pending_urls:
+                break
+
+            stage_started = time.perf_counter()
+            if stage_name == "fast_http":
+                stage_results, pending_urls = await self._run_http_stage(
+                    pending_urls,
+                    instruction=instruction,
+                    quality_gate_enabled=strategy == "quality_gated" and CRAWL_QUALITY_GATE_ENABLED,
+                )
+                timings_ms["fast_http"] = round((time.perf_counter() - stage_started) * 1000, 2)
+                stage_counts["fast_path_hits"] = len(stage_results)
+            elif stage_name == "reader":
+                stage_results, pending_urls = await self._run_reader_stage(
+                    pending_urls,
+                    instruction=instruction,
+                    quality_gate_enabled=strategy == "quality_gated" and CRAWL_QUALITY_GATE_ENABLED,
+                )
+                timings_ms["reader"] = round((time.perf_counter() - stage_started) * 1000, 2)
+                stage_counts["reader_hits"] = len(stage_results)
+            elif stage_name == "obscura_browser":
+                stage_results, pending_urls = await self._run_obscura_stage(pending_urls)
+                timings_ms["obscura_browser"] = round(
+                    (time.perf_counter() - stage_started) * 1000,
+                    2,
+                )
+                stage_counts["obscura_browser_hits"] = len(stage_results)
+            elif stage_name == "remote_browser":
+                stage_results, pending_urls = await self._run_browser_stage(
+                    self.remote_browser_backend,
+                    pending_urls,
+                )
+                timings_ms["remote_browser"] = round(
+                    (time.perf_counter() - stage_started) * 1000,
+                    2,
+                )
+                stage_counts["remote_browser_hits"] = len(stage_results)
+            else:
+                stage_results, pending_urls = await self._run_browser_stage(
+                    self.local_browser_backend,
+                    pending_urls,
+                )
+                timings_ms["local_browser"] = round(
+                    (time.perf_counter() - stage_started) * 1000,
+                    2,
+                )
+                stage_counts["local_browser_fallback_hits"] = len(stage_results)
+
+            all_results.extend(stage_results)
+
+        return all_results, pending_urls
 
     async def crawl_urls(self, urls: list[str], instruction: str) -> dict[str, Any]:
         """Crawl multiple URLs and process content."""
@@ -356,6 +565,7 @@ class WebCrawler:
                 "cache_lookup": 0.0,
                 "fast_http": 0.0,
                 "reader": 0.0,
+                "obscura_browser": 0.0,
                 "remote_browser": 0.0,
                 "local_browser": 0.0,
                 "text_processing": 0.0,
@@ -364,6 +574,7 @@ class WebCrawler:
             stage_counts = {
                 "fast_path_hits": 0,
                 "reader_hits": 0,
+                "obscura_browser_hits": 0,
                 "remote_browser_hits": 0,
                 "local_browser_fallback_hits": 0,
             }
@@ -382,6 +593,8 @@ class WebCrawler:
                             {
                                 "content": cached_data.get("content"),
                                 "reference": cached_data.get("reference"),
+                                "source_stage": cached_data.get("source_stage", "cache"),
+                                "quality_score": cached_data.get("quality_score"),
                             }
                         )
                     else:
@@ -403,37 +616,12 @@ class WebCrawler:
                     },
                 }
 
-            all_results: list[dict[str, str]] = []
-
-            stage_started = time.perf_counter()
-            http_results, pending_urls = await self._run_http_stage(pending_urls)
-            timings_ms["fast_http"] = round((time.perf_counter() - stage_started) * 1000, 2)
-            stage_counts["fast_path_hits"] = len(http_results)
-            all_results.extend(http_results)
-
-            stage_started = time.perf_counter()
-            reader_results, pending_urls = await self._run_reader_stage(pending_urls)
-            timings_ms["reader"] = round((time.perf_counter() - stage_started) * 1000, 2)
-            stage_counts["reader_hits"] = len(reader_results)
-            all_results.extend(reader_results)
-
-            stage_started = time.perf_counter()
-            remote_results, pending_urls = await self._run_browser_stage(
-                self.remote_browser_backend,
-                pending_urls,
+            all_results, pending_urls = await self._run_configured_extraction_stages(
+                pending_urls=pending_urls,
+                instruction=instruction,
+                timings_ms=timings_ms,
+                stage_counts=stage_counts,
             )
-            timings_ms["remote_browser"] = round((time.perf_counter() - stage_started) * 1000, 2)
-            stage_counts["remote_browser_hits"] = len(remote_results)
-            all_results.extend(remote_results)
-
-            stage_started = time.perf_counter()
-            local_results, pending_urls = await self._run_browser_stage(
-                self.local_browser_backend,
-                pending_urls,
-            )
-            timings_ms["local_browser"] = round((time.perf_counter() - stage_started) * 1000, 2)
-            stage_counts["local_browser_fallback_hits"] = len(local_results)
-            all_results.extend(local_results)
 
             failed_urls = pending_urls
             if not all_results and not cached_results:
@@ -457,6 +645,8 @@ class WebCrawler:
                         "url": result["reference"],
                         "content": result["content"],
                         "reference": result["reference"],
+                        "source_stage": result.get("source_stage", ""),
+                        "quality_score": str(result.get("quality_score", "")),
                     }
                     for result in processed_results
                 ]

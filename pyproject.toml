@@ -150,6 +150,9 @@ addopts = [
 testpaths = ["tests"]
 pythonpath = ["src"]
 asyncio_mode = "auto"
+markers = [
+    "benchmark: optional crawler performance benchmarks skipped unless explicitly enabled",
+]
 
 # Coverage configuration
 [tool.coverage.run]

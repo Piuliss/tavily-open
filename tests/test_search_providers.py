@@ -5,6 +5,7 @@ Tests for search provider normalization and selection.
 import httpx
 import pytest
 
+from searcrawl.local_index import LocalIndex
 from searcrawl.search_providers import (
     BraveSearchProvider,
     SearchProviderRequest,
@@ -102,3 +103,32 @@ def test_create_search_provider_rejects_unknown_provider():
     """Factory should reject unsupported provider names."""
     with pytest.raises(ValueError):
         create_search_provider("unknown-provider")
+
+
+@pytest.mark.asyncio
+async def test_router_provider_can_use_local_index(tmp_path):
+    """Router provider should return local index hits without external APIs."""
+    local_index = LocalIndex(str(tmp_path / "searcrawl.sqlite3"))
+    await local_index.initialize()
+    try:
+        await local_index.upsert_many(
+            [
+                {
+                    "url": "https://example.com/local",
+                    "title": "Local Tavily Result",
+                    "snippet": "Local result from accumulated index",
+                    "content": "Local accumulated index content for Tavily-like search.",
+                }
+            ]
+        )
+        provider = create_search_provider("router", local_index=local_index)
+
+        response = await provider.search(
+            SearchProviderRequest(query="local tavily", limit=5, provider="router")
+        )
+
+        assert response.provider.startswith("router")
+        assert response.hits[0].url == "https://example.com/local"
+        assert response.hits[0].provider == "local"
+    finally:
+        await local_index.close()

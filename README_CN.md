@@ -150,7 +150,7 @@ docker-compose down
 |---------|---------|---------|
 | **默认（无 profile）** | App + Redis | 开发环境，使用外部 SearXNG |
 | **searxng** | App + Redis + SearXNG | 完整本地环境 |
-| **reader** | App + Redis + Reader | 使用 Reader 服务进行内容提取 |
+| **reader** | App + Redis + Reader + Reader 版 API | 在 `http://localhost:8001` 使用 Reader 提取 |
 | **full** | 所有服务 | 生产环境或完整测试 |
 
 **启动示例：**
@@ -171,6 +171,7 @@ docker-compose --profile full up -d
 
 **服务访问地址：**
 - **主应用 API**: `http://localhost:8000`
+- **Reader 版 API**: `http://localhost:8001` (使用 reader profile 时)
 - **SearXNG 界面**: `http://localhost:8080` (使用 searxng profile 时)
 - **Reader 服务**: `http://localhost:3001` (使用 reader profile 时)
 - **Redis**: `localhost:6379`

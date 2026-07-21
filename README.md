@@ -162,7 +162,7 @@ This project supports selective service startup using profiles:
 |---------|------------------|----------|
 | **Default (no profile)** | App + Redis | Development with external SearXNG |
 | **searxng** | App + Redis + SearXNG | Complete local environment |
-| **reader** | App + Redis + Reader | Enable Reader fallback stage |
+| **reader** | App + Redis + Reader + reader-enabled API | Enable Reader extraction on `http://localhost:8001` |
 | **browserless** | App + Redis + Browserless | Remote browser fallback without local browser cluster |
 | **full** | All services | HTTP + Reader + Browserless + local fallback |
 
@@ -187,6 +187,7 @@ docker-compose --profile full up -d
 
 **Service Access URLs:**
 - **Main API**: `http://localhost:8000`
+- **Reader-enabled API**: `http://localhost:8001` (when using reader profile)
 - **SearXNG Interface**: `http://localhost:8080` (when using searxng profile)
 - **Reader Service**: `http://localhost:3001` (when using reader profile)
 - **Browserless**: `http://localhost:3002` (when using browserless profile)
