@@ -29,6 +29,19 @@ from searcrawl.config import (
 from searcrawl.local_index import LocalIndex
 
 
+# Topic to SearXNG engine mapping configuration
+TOPIC_ENGINE_CONFIG = {
+    "general": ["google", "duckduckgo", "bing"],
+    "news": ["google news", "bing news", "reddit"],
+    "academic": ["google scholar", "arxiv", "pubmed"],
+    "code": ["github", "stackoverflow", "gitlab"],
+    "images": ["google images", "bing images", "unsplash"],
+    "videos": ["youtube", "vimeo", "dailymotion"],
+    "social": ["reddit", "twitter", "mastodon"],
+    "shopping": ["amazon", "ebay", "walmart"],
+}
+
+
 @dataclass
 class SearchHit:
     """Normalized search result hit."""
@@ -52,6 +65,8 @@ class SearchProviderRequest:
     provider: str
     disabled_engines: str = ""
     enabled_engines: str = ""
+    days: int | None = None  # Time range filter in days
+    topic: str | None = None  # Topic for search classification
 
 
 @dataclass
@@ -76,24 +91,56 @@ class SearXNGSearchProvider:
     def __init__(self, client: httpx.AsyncClient | None = None) -> None:
         self.client = client
 
+    def _map_days_to_time_range(self, days: int | None) -> str:
+        """Map days parameter to SearXNG time_range."""
+        if days is None:
+            return "week"
+        if days <= 1:
+            return "day"
+        if days <= 7:
+            return "week"
+        if days <= 30:
+            return "month"
+        return "year"
+
+    def _get_engines_for_topic(self, topic: str | None) -> str:
+        """Get recommended engines for a given topic as comma-separated string."""
+        if topic is None:
+            return ""
+        engines = TOPIC_ENGINE_CONFIG.get(topic.lower(), [])
+        return ",".join(engines) if engines else ""
+
     async def search(self, request: SearchProviderRequest) -> SearchProviderResponse:
         owns_client = self.client is None
         client = self.client or httpx.AsyncClient(timeout=httpx.Timeout(SEARXNG_TIMEOUT_SECONDS))
         started = time.perf_counter()
         try:
+            # Build form data with dynamic time range
+            time_range = self._map_days_to_time_range(request.days)
+            
             form_data = {
                 "q": request.query,
                 "format": "json",
                 "language": SEARCH_LANGUAGE,
-                "time_range": "week",
+                "time_range": time_range,
                 "safesearch": "2",
                 "pageno": "1",
                 "category_general": "1",
             }
+            
+            # Build enabled_engines based on priority:
+            # 1. Explicit enabled_engines overrides everything
+            # 2. Topic-based engine selection
+            enabled_engines = request.enabled_engines
+            if not enabled_engines and request.topic:
+                topic_engines = self._get_engines_for_topic(request.topic)
+                if topic_engines:
+                    enabled_engines = topic_engines
+            
             headers = {
                 "Cookie": (
                     "disabled_engines="
-                    f"{request.disabled_engines};enabled_engines={request.enabled_engines};method=POST"
+                    f"{request.disabled_engines};enabled_engines={enabled_engines};method=POST"
                 ),
                 "User-Agent": "Sear-Crawl4AI/1.0.0",
                 "Accept": "*/*",

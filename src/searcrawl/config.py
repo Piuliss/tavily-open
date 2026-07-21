@@ -98,6 +98,12 @@ DISABLED_ENGINES = os.getenv(
 )
 ENABLED_ENGINES = os.getenv("ENABLED_ENGINES", "baidu__general")
 SEARCH_LANGUAGE = os.getenv("SEARCH_LANGUAGE", "auto")
+
+# Deduplication Configuration
+DEDUP_ENABLED = os.getenv("DEDUP_ENABLED", "true").lower() == "true"
+DEDUP_URL_ENABLED = os.getenv("DEDUP_URL_ENABLED", "true").lower() == "true"
+DEDUP_CONTENT_ENABLED = os.getenv("DEDUP_CONTENT_ENABLED", "true").lower() == "true"
+DEDUP_SIMILARITY_THRESHOLD = float(os.getenv("DEDUP_SIMILARITY_THRESHOLD", "0.85"))
 BRAVE_SEARCH_API_BASE = os.getenv("BRAVE_SEARCH_API_BASE", "https://api.search.brave.com/res/v1")
 BRAVE_SEARCH_API_KEY = os.getenv("BRAVE_SEARCH_API_KEY", "").strip()
 

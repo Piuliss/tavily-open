@@ -34,6 +34,10 @@ from searcrawl.config import (
     CACHE_ENABLED,
     CACHE_TTL_HOURS,
     DEFAULT_SEARCH_LIMIT,
+    DEDUP_CONTENT_ENABLED,
+    DEDUP_ENABLED,
+    DEDUP_SIMILARITY_THRESHOLD,
+    DEDUP_URL_ENABLED,
     DISABLED_ENGINES,
     ENABLED_ENGINES,
     ETCD_DISCOVER_READERS,
@@ -61,6 +65,7 @@ from searcrawl.config import (
     SEARXNG_TIMEOUT_SECONDS,
 )
 from searcrawl.crawler import WebCrawler
+from searcrawl.deduplication import deduplicate_search_results
 from searcrawl.local_index import LocalIndex, default_local_index_path
 from searcrawl.quality import assess_content_quality, chunk_text, tokenize
 from searcrawl.reader import parse_reader_urls
@@ -306,6 +311,8 @@ class SearchRequest(BaseModel):
         limit: Limit on number of results to return, default is 10
         disabled_engines: List of disabled search engines, comma-separated
         enabled_engines: List of enabled search engines, comma-separated
+        days: Time range filter in days (1=day, 7=week, 30=month, 365=year)
+        topic: Topic for search classification (general, news, academic, code, etc.)
     """
 
     query: str
@@ -321,6 +328,8 @@ class SearchRequest(BaseModel):
     chunks_per_source: int = Field(default=0, ge=0, le=8)
     include_domains: list[str] = Field(default_factory=list)
     exclude_domains: list[str] = Field(default_factory=list)
+    days: int | None = None
+    topic: str | None = None
 
 
 class TavilySearchRequest(BaseModel):
@@ -335,6 +344,8 @@ class TavilySearchRequest(BaseModel):
     include_domains: list[str] = Field(default_factory=list)
     exclude_domains: list[str] = Field(default_factory=list)
     provider: str = SEARCH_PROVIDER
+    days: int | None = None
+    topic: str | None = None
 
 
 class CrawlRequest(BaseModel):
@@ -858,8 +869,31 @@ async def search(request: SearchRequest):
                 provider=request.provider,
                 disabled_engines=request.disabled_engines,
                 enabled_engines=request.enabled_engines,
+                days=request.days,
+                topic=request.topic,
             )
         )
+
+        # Apply deduplication if enabled
+        if DEDUP_ENABLED and provider_response.hits:
+            results_to_dedup = [
+                {"url": hit.url, "content": hit.snippet or hit.title}
+                for hit in provider_response.hits
+            ]
+            deduped_results = deduplicate_search_results(
+                results_to_dedup,
+                url_dedup=DEDUP_URL_ENABLED,
+                content_dedup=DEDUP_CONTENT_ENABLED,
+                similarity_threshold=DEDUP_SIMILARITY_THRESHOLD,
+            )
+            # Filter hits to keep only deduplicated ones
+            deduped_urls = {r["url"] for r in deduped_results}
+            provider_response.hits = [hit for hit in provider_response.hits if hit.url in deduped_urls]
+            logger.info(
+                f"Deduplication: {len(results_to_dedup)} -> {len(deduped_results)} results "
+                f"(removed {len(results_to_dedup) - len(deduped_results)} duplicates)"
+            )
+
         provider_response.hits = _filter_hits_by_domain(
             provider_response.hits,
             include_domains=request.include_domains,
@@ -984,6 +1018,8 @@ async def tavily_search(request: TavilySearchRequest):
             chunks_per_source=request.chunks_per_source,
             include_domains=request.include_domains,
             exclude_domains=request.exclude_domains,
+            days=request.days,
+            topic=request.topic,
         )
     )
 

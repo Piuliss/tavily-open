@@ -147,9 +147,15 @@ Content-Type: application/json
   "include_raw_content": false,
   "chunks_per_source": 0,
   "include_domains": [],
-  "exclude_domains": []
+  "exclude_domains": [],
+  "days": 7,
+  "topic": "general"
 }
 ```
+
+**New Parameters:**
+- `days` (optional): Filter search results by time range in days. Maps to SearXNG time_range: ≤1→"day", ≤7→"week", ≤30→"month", >30→"year"
+- `topic` (optional): Classify search by topic to route to appropriate engines. Options: `general`, `news`, `academic`, `code`, `images`, `videos`, `social`, `shopping`
 
 Set `"mode": "search"` to return search hits without crawling. Set `"response_format": "tavily"` to return the Tavily-like shape from `/search`.
 
@@ -170,7 +176,9 @@ Content-Type: application/json
   "chunks_per_source": 2,
   "include_domains": [],
   "exclude_domains": [],
-  "provider": "router"
+  "provider": "router",
+  "days": 7,
+  "topic": "general"
 }
 ```
 

@@ -147,9 +147,15 @@ Content-Type: application/json
   "include_raw_content": false,
   "chunks_per_source": 0,
   "include_domains": [],
-  "exclude_domains": []
+  "exclude_domains": [],
+  "days": 7,
+  "topic": "general"
 }
 ```
+
+**新增参数：**
+- `days` (可选): 按时间范围（天数）过滤搜索结果。映射到 SearXNG 的 time_range：≤1→"day", ≤7→"week", ≤30→"month", >30→"year"
+- `topic` (可选): 按主题分类搜索，路由到适当的搜索引擎。选项：`general`、`news`、`academic`、`code`、`images`、`videos`、`social`、`shopping`
 
 设置 `"mode": "search"` 可以只返回搜索结果、不爬取页面。设置 `"response_format": "tavily"` 可以让 `/search` 直接返回 Tavily-like 结构。
 
@@ -170,7 +176,9 @@ Content-Type: application/json
   "chunks_per_source": 2,
   "include_domains": [],
   "exclude_domains": [],
-  "provider": "router"
+  "provider": "router",
+  "days": 7,
+  "topic": "general"
 }
 ```
 
