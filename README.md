@@ -1,466 +1,350 @@
-# tavily-open
+# searCrawl
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
 
 [中文文档](README_CN.md) | English
 
-> 🔍 Open-source intelligent search and web crawling tool - An open-source alternative to Tavily
+searCrawl is an open-source Tavily-like search, extraction, and crawl backfill service. It combines low-cost search routing, local SQLite FTS reuse, SearXNG, optional Brave Search fallback, Redis caching, Reader/HTTP/browser extraction stages, and asynchronous backfill so foreground requests stay fast while difficult pages are retried later.
 
-## 📖 Introduction
+The package and CLI name are `searcrawl`; the API exposes both the legacy `/search` response and Tavily-like `/tavily/search` and `/tavily/extract` routes.
 
-**tavily-open** is a powerful open-source search and web crawling tool built on SearXNG. It now uses a hybrid extraction pipeline: lightweight HTTP extraction first, `Jina Reader` as a secondary fallback, and browser rendering only when cheaper stages fail. Browser rendering can run against a remote Browserless/CDP cluster, with optional local Playwright fallback for the few pages that truly need it. The tool is fully open-source, customizable, and supports distributed caching.
+## Highlights
 
-### ✨ Key Features
+- **Low-cost search router**: query the local SQLite index first, then SearXNG, and only call Brave Search when external search is explicitly enabled.
+- **Tavily-like API surface**: `POST /tavily/search`, `POST /tavily/extract`, optional answer generation, chunks, raw content, domain filters, and search-only mode.
+- **Benchmark-informed extraction**: configurable staged extraction with `reader_first`, `http_first`, or `quality_gated` strategies.
+- **Local content reuse**: successful extractions are written back to SQLite FTS and Redis, reducing repeated fetches for later queries.
+- **Async backfill**: failed foreground crawls are queued and retried with exponential backoff instead of blocking user requests.
+- **Distributed-ready**: Redis can be used as the shared backfill queue, while etcd can register and discover API, crawler, and Reader nodes.
+- **Browser fallback options**: Obscura CLI, Browserless/CDP, and local Playwright are late-stage fallbacks for pages that need rendering.
 
-- 🔎 **Intelligent Search** - High-quality search results through SearXNG meta search engine
-- 🕷️ **Hybrid Extraction Pipeline** - `HTTP extractor -> Reader -> remote browser -> local browser fallback`, reducing browser usage on the hot path.
-- 🚀 **Distributed Caching** - Redis-based distributed caching to reduce redundant crawling and improve performance
-- 🎯 **RESTful API** - Clean and easy-to-use API interface with Swagger documentation
-- ⚙️ **Highly Customizable** - Flexible configuration for search engines, crawler parameters, and caching strategies
-- 🔄 **Concurrent Processing** - Async HTTP/Reader stages with browser fallback only for difficult pages
-- 🐳 **Docker Support** - One-click deployment with all dependencies included
-- 🧪 **Comprehensive Testing** - Full test suite and code quality tools
+## Architecture
 
-## 🏗️ System Architecture
-
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│                          Client Application                          │
-│                     (Web App / CLI / SDK)                            │
-└────────────────────────────────┬────────────────────────────────────┘
-                                 │
-                                 │ HTTP POST /search
-                                 │ { query, limit, engines }
-                                 ▼
-┌─────────────────────────────────────────────────────────────────────┐
-│                        tavily-open API Service                       │
-│                      (FastAPI + Uvicorn)                             │
-└────────────────────────────────┬────────────────────────────────────┘
-                                 │
-                    ┌────────────┴────────────┐
-                    │                         │
-                    ▼                         ▼
-         ┌──────────────────┐      ┌──────────────────┐
-         │  SearXNG Search  │      │   Redis Cache    │
-         │  Meta Engine     │      │  Distributed     │
-         └────────┬─────────┘      └────────┬─────────┘
-                  │                         │
-                  │ Return URL List         │ Cache Hit Check
-                  │ + Metadata              │
-                  ▼                         │
-         ┌──────────────────┐              │
-         │  URL Dedup &     │◄─────────────┘
-         │  Cache Query     │
-         └────────┬─────────┘
-                  │
-                  │ URLs to Process
-                  │
-      ┌───────────▼───────────┐
-      │  HTTP Extractor       │
-      │  (Fast Path)          │
-      └───────────┬───────────┘
-                  │
-       miss_or_low_quality
-                  │
-         ┌────────▼─────────┐
-         │   Jina Reader    │
-         │ (Second Stage)   │
-         └────────┬─────────┘
-                  │
-       miss_or_low_quality
-                  │
-         ┌────────▼─────────┐
-         │ Browserless/CDP  │
-         │ (Remote Browser) │
-         └────────┬─────────┘
-                  │ remote_failed
-                  ▼
-         ┌────────▼─────────┐
-         │ Local Playwright │
-         │   (Fallback)     │
-         └────────┬─────────┘
-                  │
-         ┌────────▼─────────┐
-         │ Content Filter   │
-         │ & Processing     │
-         └────────┬─────────┘
-                  │
-                  │ Store to Cache
-                  ▼
-         ┌──────────────────┐
-         │ Return Results   │
-         │ + Statistics     │
-         └──────────────────┘
+```text
+client
+  -> FastAPI app
+      -> SearchRouter
+          -> local SQLite FTS index
+          -> SearXNG
+          -> Brave Search, only when EXTERNAL_SEARCH_ENABLED=true
+      -> local-index content reuse for known URLs
+      -> Redis crawl/search cache
+      -> extraction pipeline
+          -> Reader, HTTP extractor, Obscura, Browserless/CDP, local Playwright
+          -> order controlled by CRAWL_EXTRACTION_STRATEGY
+      -> quality score, chunks, optional extractive answer
+      -> Redis cache + SQLite local index writeback
+      -> failed URLs queued for async backfill
 ```
 
-### 🔄 Workflow Explanation
+Core modules:
 
-1. **Receive Request** - Client sends search query with parameters (keywords, result count, search engine config).
-2. **Cache Check** - System first checks Redis cache for previously crawled content (if caching is enabled).
-3. **Search Phase** - The query is sent to SearXNG to retrieve a relevant URL list and metadata.
-4. **URL Deduplication** - Search results are deduplicated, and their cache hit status is checked.
-5. **Content Extraction** - For uncached URLs, the system tries several extractors in order:
-    - **HTTP Extractor (Default)**: Fetches raw HTML and extracts article-like content without a browser.
-    - **Jina Reader (Optional)**: If the HTTP fast path fails or returns poor content, Reader can be used as a second-stage fallback.
-    - **Browserless/CDP (Optional)**: If browser rendering is needed, the system can connect to a remote browser cluster.
-    - **Local Playwright (Optional)**: If remote rendering fails and local fallback is enabled, a local browser is started on demand.
-6. **Content Processing** - The extracted raw content is cleaned, formatted, and filtered for quality.
-7. **Cache Storage** - Successfully fetched content is stored in Redis with an expiration time.
-8. **Return Results** - The final processed content is returned along with statistics (cache hits, newly crawled, failures).
+| Module | Role |
+|---|---|
+| `src/searcrawl/main.py` | FastAPI app, request models, routing, Tavily-like response shaping, lifecycle wiring |
+| `src/searcrawl/search_providers.py` | Local, SearXNG, Brave, and router search providers |
+| `src/searcrawl/crawler.py` | Staged extraction orchestration and cache-aware crawl results |
+| `src/searcrawl/extractor.py` | Lightweight HTTP/trafilatura extraction path |
+| `src/searcrawl/reader.py` | Reader service client, multi-endpoint hashing, and failover |
+| `src/searcrawl/browser.py` | Obscura, remote Browserless/CDP, and local Playwright fallback backends |
+| `src/searcrawl/local_index.py` | SQLite document index, FTS search, and local backfill job storage |
+| `src/searcrawl/backfill.py` | Background worker for retrying failed crawl jobs |
+| `src/searcrawl/backfill_queue.py` | Redis-backed distributed backfill queue |
+| `src/searcrawl/service_registry.py` | etcd service registration and discovery |
+| `src/searcrawl/cache.py` | Redis crawl and search cache |
+| `src/searcrawl/quality.py` | Content quality scoring, tokenization, and chunking |
 
-### 🧩 Core Components
+For a deeper architecture note, see [TAVILY_LIKE_ARCHITECTURE.md](TAVILY_LIKE_ARCHITECTURE.md).
 
-| Component | Description | Tech Stack |
-|-----------|-------------|------------|
-| **API Server** | RESTful API interface | FastAPI + Uvicorn |
-| **Search Engine** | Privacy-friendly meta search | SearXNG |
-| **Crawler Engine** | Intelligent staged extraction | HTTP extractor + Jina Reader + Browserless/CDP + local Playwright |
-| **Cache Layer** | Distributed cache storage | Redis |
-| **Concurrent Processing** | Multi-threaded crawling | ThreadPoolExecutor |
+## Quick Start
 
-## 🚀 Quick Start
-
-### 📋 Prerequisites
-
-- Python 3.9+
-- SearXNG instance (local or remote)
-- Playwright browser (automatically handled by installation script)
-- Redis (optional, for caching - included in Docker setup)
-
-### 🐳 Docker Deployment (Recommended)
-
-The easiest way to deploy all services with Docker Compose:
+### Docker
 
 ```bash
-# 1. Clone the repository
-git clone https://github.com/Owoui/SearXNG-Crawl4AI.git
-cd SearXNG-Crawl4AI
-
-# 2. Configure environment variables
 cp .env.example .env
-# Edit .env file as needed
-
-# 3. Start basic services (app + Redis)
-docker-compose up -d
-
-# Or start with SearXNG included
-docker-compose --profile searxng up -d
-
-# 4. View logs
-docker-compose logs -f
-
-# 5. Stop services
-docker-compose down
+docker compose up -d --build
 ```
 
-#### 📦 Docker Compose Profiles
+Default Docker Compose starts Redis, SearXNG, and the main API.
 
-This project supports selective service startup using profiles:
+| Service | URL |
+|---|---|
+| Main API | `http://localhost:8000` |
+| Swagger UI | `http://localhost:8000/docs` |
+| ReDoc | `http://localhost:8000/redoc` |
+| SearXNG | `http://localhost:8080` |
+| Redis | `localhost:6379` |
 
-| Profile | Services Included | Use Case |
-|---------|------------------|----------|
-| **Default (no profile)** | App + Redis | Development with external SearXNG |
-| **searxng** | App + Redis + SearXNG | Complete local environment |
-| **reader** | App + Redis + Reader + reader-enabled API | Enable Reader extraction on `http://localhost:8001` |
-| **browserless** | App + Redis + Browserless | Remote browser fallback without local browser cluster |
-| **full** | All services | HTTP + Reader + Browserless + local fallback |
-
-**Startup Examples:**
+Optional profiles:
 
 ```bash
-# Start basic services only (App + Redis)
-docker-compose up -d
+# Start a Reader service and a Reader-enabled API on port 8001
+docker compose --profile reader up -d --build
 
-# Start with SearXNG included
-docker-compose --profile searxng up -d
+# Start Browserless/CDP for remote browser fallback
+docker compose --profile browserless up -d --build
 
-# Start with Reader service included
-docker-compose --profile reader up -d
-
-# Start with Browserless remote browser included
-docker-compose --profile browserless up -d
-
-# Start all services
-docker-compose --profile full up -d
+# Start every optional local service
+docker compose --profile full up -d --build
 ```
 
-**Service Access URLs:**
-- **Main API**: `http://localhost:8000`
-- **Reader-enabled API**: `http://localhost:8001` (when using reader profile)
-- **SearXNG Interface**: `http://localhost:8080` (when using searxng profile)
-- **Reader Service**: `http://localhost:3001` (when using reader profile)
-- **Browserless**: `http://localhost:3002` (when using browserless profile)
-- **Redis**: `localhost:6379`
+Reader profile URLs:
 
-For detailed Docker Profiles usage, see: [`DOCKER_PROFILES.md`](DOCKER_PROFILES.md)
+| Service | URL |
+|---|---|
+| Reader-enabled API | `http://localhost:8001` |
+| Reader service | `http://localhost:3001` |
 
-### 💻 Manual Installation
+The default `app` container keeps Reader disabled and uses `http_first` to stay lightweight. The `app-reader` profile enables Reader and uses `reader_first`.
 
-#### 1. Clone the Repository
+### Distributed Compose
 
 ```bash
-git clone https://github.com/jianjungki/tavily-open.git
-cd tavily-open
+docker compose -f docker-compose.distributed.yml up -d --build
 ```
 
-#### 2. Create Virtual Environment
+The distributed stack starts Redis, etcd, SearXNG, two Reader nodes, one public app node, and two crawler worker nodes. Redis is the shared backfill queue; etcd registers API/crawler/Reader endpoints.
+
+### Manual Install
 
 ```bash
-# Windows
-python -m venv venv
-venv\Scripts\activate
-
-# macOS/Linux
-python3 -m venv venv
-source venv/bin/activate
-```
-
-#### 3. Install Dependencies
-
-```bash
-# Production
-pip install -e .
-
-# Development (includes testing and code quality tools)
+python -m venv .venv
+.venv\Scripts\activate
 pip install -e ".[dev]"
-```
-
-#### 4. Configure Environment Variables
-
-```bash
 cp .env.example .env
-# Edit .env file to configure SearXNG, Redis, etc.
+searcrawl
 ```
 
-#### 5. Start the Service
+On macOS/Linux, activate with `source .venv/bin/activate`. The local CLI runs on `http://0.0.0.0:3000` by default.
+
+For manual local runs without a Reader service, set `READER_ENABLED=false` or point `READER_URL` / `READER_URLS` at a reachable Reader instance before starting the API.
+
+If local browser fallback is enabled, install Chromium once:
 
 ```bash
-# Using CLI tool
-searcrawl
-
-# Or directly with Python
-python -m searcrawl.main
+python -m playwright install chromium
 ```
 
-The service runs by default at `http://0.0.0.0:3000`
+## API
 
-> **Note:** The package name remains `searcrawl` for backward compatibility, but the project is now known as **tavily-open**.
-
-## 📚 Usage Guide
-
-### 🔌 API Endpoints
-
-#### Search Endpoint
+### Legacy Search
 
 ```http
 POST /search
 Content-Type: application/json
 ```
 
-**Request Example:**
-
 ```json
 {
-  "query": "artificial intelligence latest developments",
-  "limit": 10,
-  "disabled_engines": "wikipedia__general,currency__general,wikidata__general",
-  "enabled_engines": "baidu__general,bing__general"
+  "query": "crawler benchmark extraction",
+  "limit": 5,
+  "mode": "crawl",
+  "provider": "router",
+  "response_format": "legacy",
+  "search_depth": "basic",
+  "include_answer": false,
+  "include_raw_content": false,
+  "chunks_per_source": 0,
+  "include_domains": [],
+  "exclude_domains": []
 }
 ```
 
-**Parameters:**
+Set `"mode": "search"` to return search hits without crawling. Set `"response_format": "tavily"` to return the Tavily-like shape from `/search`.
 
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `query` | string | ✅ | Search keywords |
-| `limit` | integer | ❌ | Number of results to return (default: 10) |
-| `disabled_engines` | string | ❌ | Disabled search engines (comma-separated) |
-| `enabled_engines` | string | ❌ | Enabled search engines (comma-separated) |
+### Tavily-like Search
 
-**Response Example:**
+```http
+POST /tavily/search
+Content-Type: application/json
+```
 
 ```json
 {
-  "results": [
-    {
-      "content": "Artificial Intelligence (AI) is a branch of computer science...",
-      "reference": "https://example.com/ai-article"
-    },
-    {
-      "content": "The latest GPT-4 model demonstrates powerful capabilities...",
-      "reference": "https://example.com/gpt4-news"
-    }
-  ],
-  "success_count": 8,
-  "failed_urls": [
-    "https://example.com/timeout-page"
-  ],
-  "cache_hits": 3,
-  "newly_crawled": 5
+  "query": "reader benchmark extraction",
+  "max_results": 5,
+  "search_depth": "basic",
+  "include_answer": true,
+  "include_raw_content": false,
+  "chunks_per_source": 2,
+  "include_domains": [],
+  "exclude_domains": [],
+  "provider": "router"
 }
 ```
 
-**Response Fields:**
+Example response fields:
 
-| Field | Description |
-|-------|-------------|
-| `results` | Array of crawled content with source URLs |
-| `success_count` | Total number of successful results (cached + newly crawled) |
-| `failed_urls` | List of URLs that failed to crawl |
-| `cache_hits` | Number of results retrieved from cache (when caching enabled) |
-| `newly_crawled` | Number of newly crawled results (when caching enabled) |
+| Field | Meaning |
+|---|---|
+| `query` | Original query |
+| `answer` | Optional non-LLM extractive answer assembled from top matching source sentences |
+| `results` | Ranked extracted results with `title`, `url`, `content`, `score`, and `source_stage` |
+| `chunks` | Optional per-result text chunks when `chunks_per_source > 0` |
+| `raw_content` | Optional full cleaned content when `include_raw_content=true` |
+| `failed_results` | URLs that failed foreground extraction |
+| `backfill` | Queue state when failed URLs were handed to async backfill |
+| `timings_ms` | Search, cache, extraction, text processing, and writeback timings |
 
-### 📖 API Documentation
+### Extract Known URLs
 
-After starting the service, visit the following URLs for interactive API documentation:
-
-- **Swagger UI**: `http://localhost:3000/docs`
-- **ReDoc**: `http://localhost:3000/redoc`
-
-### 🔧 Configuration Options
-
-Configure system parameters through the `.env` file:
-
-```env
-# ========== SearXNG Configuration ==========
-SEARXNG_HOST=localhost
-SEARXNG_PORT=8080
-SEARXNG_BASE_PATH=/search
-
-# ========== API Service Configuration ==========
-API_HOST=0.0.0.0
-API_PORT=3000
-
-# ========== Reader Service Configuration ==========
-READER_ENABLED=false
-READER_URL=http://localhost:3001
-READER_API_KEY=
-
-# ========== Crawler Configuration ==========
-DEFAULT_SEARCH_LIMIT=10          # Default search result count
-CONTENT_FILTER_THRESHOLD=0.6     # Content filter threshold
-WORD_COUNT_THRESHOLD=10          # Minimum word count threshold
-CRAWLER_POOL_SIZE=4              # Crawler thread pool size
-
-# ========== Cache Configuration ==========
-CACHE_ENABLED=true               # Enable/disable caching
-REDIS_URL=redis://localhost:6379/0
-CACHE_TTL_HOURS=24               # Cache expiration time (hours)
-
-# ========== Search Engine Configuration ==========
-DISABLED_ENGINES=wikipedia__general,currency__general,wikidata__general
-ENABLED_ENGINES=baidu__general,bing__general
+```http
+POST /extract
+POST /tavily/extract
 ```
 
-### 💾 Cache Configuration Details
-
-tavily-open supports Redis-based distributed caching for significant performance improvements:
-
-- **CACHE_ENABLED**: Enable/disable caching (true/false)
-- **REDIS_URL**: Redis connection URL (default: redis://localhost:6379/0)
-- **CACHE_TTL_HOURS**: Cache expiration time in hours (default: 24)
-
-**Cache Benefits:**
-- ✅ Reduce redundant crawling, save bandwidth and time
-- ✅ Multi-instance cache sharing for improved overall efficiency
-- ✅ Automatic expiration mechanism ensures data freshness
-
-For detailed cache implementation documentation, see: [`CACHE_IMPLEMENTATION.md`](CACHE_IMPLEMENTATION.md)
-
-## 🛠️ Development Guide
-
-### 📁 Project Structure
-
-```
-tavily-open/
-├── src/
-│   └── searcrawl/
-│       ├── __init__.py           # Package initialization
-│       ├── cache.py              # Redis cache manager
-│       ├── config.py             # Configuration loader
-│       ├── crawler.py            # Crawler core logic
-│       ├── logger.py             # Logging module
-│       └── main.py               # API service entry
-├── tests/
-│   ├── __init__.py
-│   ├── test_config.py            # Configuration tests
-│   ├── test_crawler.py           # Crawler tests
-│   └── test_api.py               # API tests
-├── .env.example                  # Environment variables example
-├── .gitignore                    # Git ignore rules
-├── .pre-commit-config.yaml       # Pre-commit hooks config
-├── docker-compose.yml            # Docker Compose config
-├── Dockerfile                    # Docker image definition
-├── pyproject.toml                # Project metadata and dependencies
-├── requirements.txt              # Production dependencies
-├── requirements-dev.txt          # Development dependencies
-├── CACHE_IMPLEMENTATION.md       # Cache system documentation
-├── LICENSE                       # MIT License
-└── README.md                     # Project documentation
+```json
+{
+  "urls": ["https://example.com/article"],
+  "query": "optional relevance query",
+  "include_raw_content": true,
+  "chunks_per_source": 2
+}
 ```
 
-### 🔨 Development Setup
+Successful extract results are written into the local SQLite index for later reuse.
+
+### Operations Endpoints
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /cache/stats` | Redis cache status |
+| `POST /cache/clear` | Clear cached crawl/search data |
+| `GET /backfill/stats` | Backfill queue status by job state |
+| `GET /backfill/jobs?limit=50` | Recent backfill jobs |
+| `POST /backfill/enqueue` | Manually enqueue failed or known URLs |
+| `POST /backfill/run-once` | Process one due backfill batch immediately |
+| `GET /registry/services/{service_name}` | Discover etcd-registered service instances |
+
+## Configuration
+
+Most settings live in [.env.example](.env.example). Common groups:
+
+| Area | Variables |
+|---|---|
+| API | `API_HOST`, `API_PORT`, `APP_PORT`, `APP_READER_PORT` |
+| SearXNG | `SEARXNG_URL`, `SEARXNG_HOST`, `SEARXNG_PORT`, `SEARXNG_BASE_PATH`, `SEARCH_LANGUAGE` |
+| Search routing | `SEARCH_PROVIDER`, `SEARCH_ROUTE_PROVIDERS`, `EXTERNAL_SEARCH_ENABLED`, `EXTERNAL_SEARCH_FALLBACK_ONLY`, `BRAVE_SEARCH_API_KEY` |
+| Local index | `LOCAL_INDEX_ENABLED`, `LOCAL_INDEX_PATH`, `LOCAL_INDEX_MIN_RESULTS` |
+| Redis cache | `CACHE_ENABLED`, `REDIS_URL`, `CACHE_TTL_HOURS`, `SEARCH_CACHE_TTL_SECONDS` |
+| Extraction | `CRAWL_EXTRACTION_STRATEGY`, `CRAWL_QUALITY_GATE_ENABLED`, `CRAWL_MIN_QUALITY_SCORE` |
+| HTTP stage | `HTTP_EXTRACTOR_ENABLED`, `HTTP_EXTRACTOR_TIMEOUT_SECONDS`, `HTTP_EXTRACTOR_MAX_CONCURRENCY`, `HTTP_EXTRACTOR_MIN_CONTENT_LENGTH` |
+| Reader stage | `READER_ENABLED`, `READER_URL`, `READER_URLS`, `READER_TIMEOUT_SECONDS`, `READER_MAX_CONCURRENCY`, `READER_MIN_CONTENT_LENGTH` |
+| Browser fallback | `BROWSER_BACKEND`, `BROWSERLESS_WS_URL`, `BROWSER_LOCAL_FALLBACK_ENABLED`, `OBSCURA_BINARY` |
+| Backfill | `BACKFILL_ENABLED`, `BACKFILL_QUEUE_BACKEND`, `BACKFILL_BATCH_SIZE`, `BACKFILL_MAX_ATTEMPTS` |
+| Service registry | `ETCD_ENABLED`, `ETCD_ENDPOINTS`, `ETCD_DISCOVER_READERS`, `ETCD_REGISTER_SELF`, `ETCD_REGISTER_READER_URLS` |
+| Anti-crawl | `ANTI_CRAWL_ENABLED`, `ENABLE_USER_AGENT_ROTATION`, `ENABLE_REQUEST_DELAY`, `PROXY_LIST` |
+
+Extraction strategies:
+
+| Strategy | Behavior |
+|---|---|
+| `reader_first` | Try Reader before HTTP/browser. This is the benchmark-informed quality default when Reader is available. |
+| `http_first` | Try lightweight HTTP extraction first, then Reader/browser. This is the default main Docker app behavior. |
+| `quality_gated` | Try HTTP first, but escalate low-quality content to Reader. |
+
+Browser backend choices:
+
+| Backend | Behavior |
+|---|---|
+| `local` | Use local Playwright fallback only when enabled |
+| `remote` | Use Browserless/CDP only |
+| `obscura` | Use Obscura CLI only |
+| `hybrid` | Try Obscura, then Browserless/CDP, then local Playwright |
+
+## Benchmark
+
+The current stable benchmark report is available in [benchmark-all-stable-report.md](benchmark-all-stable-report.md) and [benchmark-all-stable-report.html](benchmark-all-stable-report.html).
+
+Latest checked-in stable run:
+
+| Rank | Profile | Overall | Usable | Recall | JS | Boilerplate | Median ms | URLs/s |
+|---:|---|---:|---:|---:|---:|---:|---:|---:|
+| 1 | `reader_service` | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% | 15.93 | 376.65 |
+| 2 | `http_extractor` | 52.6% | 66.7% | 66.7% | 0.0% | 100.0% | 463.03 | 12.96 |
+| 3 | `scrapling_static` | 29.2% | 16.7% | 66.7% | 0.0% | 0.0% | 221.41 | 27.10 |
+| 4 | `local_playwright` | 12.6% | 16.7% | 16.7% | 0.0% | 0.0% | 5341.88 | 1.12 |
+
+Run context:
+
+| Item | Value |
+|---|---|
+| Rounds | `2` |
+| URL count | `6` |
+| Profiles | `http_extractor`, `reader_service`, `scrapling_static`, `local_playwright` |
+| Score weights | quality 45% + capability 25% + throughput 20% + latency 10% |
+
+Takeaways:
+
+- Reader produced the best quality and throughput in the deterministic fixture benchmark, so `reader_first` is preferred when Reader capacity is available.
+- HTTP extraction is still a useful static-page path and works well as the lightweight default when the Reader service is not running.
+- Browser rendering is expensive and should remain a late fallback for pages that static/Reader extraction cannot handle.
+- Benchmark numbers depend on environment, optional dependencies, browser availability, and site behavior. Use them as extraction-order guidance, not as absolute production guarantees.
+
+Run a local benchmark:
+
+```powershell
+$env:SEARCRAWL_RUN_BENCHMARK = "1"
+$env:SEARCRAWL_BENCHMARK_PRESET = "fast"
+$env:SEARCRAWL_BENCHMARK_OUTPUT = "benchmark-results.json"
+pytest tests/test_benchmark.py -m benchmark -s --no-cov
+python scripts/render_benchmark_report.py benchmark-results.json --markdown benchmark-report.md --html benchmark-report.html
+```
+
+Useful options:
+
+| Variable | Purpose |
+|---|---|
+| `SEARCRAWL_BENCHMARK_PRESET=fast` | HTTP, Reader, Scrapling static, and Reader pipeline profiles |
+| `SEARCRAWL_BENCHMARK_PRESET=quick` | Adds local Playwright comparison |
+| `SEARCRAWL_BENCHMARK_PRESET=browser` | Focuses on browser-capable profiles |
+| `SEARCRAWL_BENCHMARK_PRESET=all` | Runs all available profiles |
+| `SEARCRAWL_BENCHMARK_ROUNDS=3` | Increase measurement rounds |
+| `SEARCRAWL_BENCHMARK_INSTALL_BROWSERS=1` | Allow benchmark to install missing Playwright browsers |
+| `SEARCRAWL_BENCHMARK_PROFILES=http_extractor,reader_service` | Select explicit profiles |
+
+Optional Scrapling profiles require:
+
+```powershell
+pip install "scrapling[fetchers]"
+scrapling install
+```
+
+## Development
 
 ```bash
-# 1. Install development dependencies
 pip install -e ".[dev]"
-
-# 2. Install pre-commit hooks
-pre-commit install
-
-# 3. Run tests
 pytest
-
-# 4. Run tests with coverage report
 pytest --cov=searcrawl --cov-report=html
-
-# 5. Format code
-black src/ tests/
-
-# 6. Lint code
 ruff check src/ tests/
-
-# 7. Type checking
+black src/ tests/
 mypy src/
 ```
 
-### 🧪 Code Quality Tools
+Benchmark tests are skipped unless `SEARCRAWL_RUN_BENCHMARK=1` is set.
 
-| Tool | Purpose | Command |
-|------|---------|---------|
-| **Black** | Code formatting | `black src/ tests/` |
-| **Ruff** | Fast Python linter | `ruff check src/ tests/` |
-| **MyPy** | Static type checking | `mypy src/` |
-| **isort** | Import sorting | `isort src/ tests/` |
-| **pytest** | Testing framework | `pytest` |
-| **pre-commit** | Git hooks | `pre-commit run --all-files` |
+## Project Layout
 
-### 🔧 Extending Functionality
-
-Modify the following files to extend functionality:
-
-- [`src/searcrawl/cache.py`](src/searcrawl/cache.py) - Extend caching strategies or add new cache backends
-- [`src/searcrawl/crawler.py`](src/searcrawl/crawler.py) - Add new crawling strategies or content processing methods
-- [`src/searcrawl/main.py`](src/searcrawl/main.py) - Add new API endpoints
-- [`src/searcrawl/config.py`](src/searcrawl/config.py) - Add new configuration parameters
-
-### 📦 Building Distribution
-
-```bash
-# Build source and wheel distributions
-python -m build
-
-# Built distributions will be in the dist/ directory
+```text
+.
+├── src/searcrawl/                  # Python package
+├── tests/                          # Unit, integration, and optional benchmark tests
+├── scripts/                        # Benchmark report render/merge helpers
+├── searxng/settings.yml            # Local SearXNG config
+├── data/                           # Local SQLite index path for development
+├── docker-compose.yml              # Local stack
+├── docker-compose.distributed.yml  # Redis + etcd + multi-node stack
+├── .env.example                    # Complete environment reference
+├── CACHE_GUIDE.md                  # Cache usage notes
+├── DOCKER_PROFILES.md              # Compose profile notes
+├── TAVILY_LIKE_ARCHITECTURE.md     # Architecture details
+└── benchmark-all-stable-report.md  # Checked-in stable benchmark report
 ```
 
-## 🚢 Deployment Notes
+## Deployment Notes
 
-### SearXNG Configuration
-
-When deploying SearXNG, pay special attention to the following configuration:
-
-In SearXNG's `settings.yml` configuration file, add or modify the `formats` configuration in the `search` section:
+SearXNG must expose JSON search results. The local [searxng/settings.yml](searxng/settings.yml) includes JSON support. If you manage your own SearXNG instance, make sure the search formats include:
 
 ```yaml
 search:
@@ -469,71 +353,14 @@ search:
     - json
 ```
 
-This configuration ensures SearXNG returns JSON format search results, which is necessary for tavily-open to function properly.
+For production:
 
-### Production Environment Recommendations
+- Keep `EXTERNAL_SEARCH_ENABLED=false` unless you intentionally want Brave API fallback.
+- Use Redis for shared crawl/search cache and distributed backfill queue.
+- Use etcd when Reader/crawler nodes need dynamic discovery.
+- Keep browser rendering concurrency low; it is the most expensive stage.
+- Put a reverse proxy in front of the API for TLS, auth, request size limits, and rate limits.
 
-- ✅ Use Docker Compose for deployment, easier to manage
-- ✅ Enable Redis caching for performance improvement
-- ✅ Configure appropriate `CRAWLER_POOL_SIZE` to balance performance and resources
-- ✅ Set reasonable `CACHE_TTL_HOURS` to balance freshness and efficiency
-- ✅ Use reverse proxy (e.g., Nginx) for SSL and load balancing
+## License
 
-## 🤝 Contributing
-
-Contributions are welcome! If you'd like to contribute to the project, please follow these steps:
-
-1. **Fork the repository**
-2. **Create a feature branch** (`git checkout -b feature/AmazingFeature`)
-3. **Commit your changes** (`git commit -m 'Add some AmazingFeature'`)
-4. **Push to the branch** (`git push origin feature/AmazingFeature`)
-5. **Create a Pull Request**
-
-### Contribution Requirements
-
-- ✅ Update relevant test cases
-- ✅ Follow code style (enforced by pre-commit hooks)
-- ✅ Update related documentation
-- ✅ Ensure all tests pass
-
-## 📄 License
-
-This project is licensed under the [MIT License](LICENSE)
-
-## 🙏 Acknowledgments
-
-This project is built on the following excellent open-source projects:
-
-- **[SearCrawl](https://github.com/jianjungki/tavily-open)** - The predecessor of this project, thanks for the original contributions
-- **[SearXNG](https://github.com/searxng/searxng)** - Privacy-respecting meta search engine
-- **[Crawl4AI](https://github.com/unclecode/crawl4ai)** - Web crawling library designed for AI
-- **[Jina Reader](https://github.com/jina-ai/reader)** - A fast and intelligent web reader service
-- **[FastAPI](https://fastapi.tiangolo.com/)** - Modern, fast web framework
-- **[Redis](https://redis.io/)** - High-performance in-memory data store
-
-Thanks to all developers who contributed to these projects!
-
-## 📞 Contact
-
-- **Issues**: [GitHub Issues](https://github.com/jianjungki/tavily-open/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/jianjungki/tavily-open/discussions)
-
-## 🗺️ Roadmap
-
-- [ ] Support for more search engines
-- [ ] Add GraphQL API
-- [ ] Implement result ranking and relevance scoring
-- [ ] Support custom content extraction rules
-- [ ] Add Web UI management interface
-- [ ] Support more cache backends (Memcached, DynamoDB, etc.)
-- [ ] Implement distributed crawling cluster
-
----
-
-<div align="center">
-
-**If this project helps you, please give us a ⭐️**
-
-Made with ❤️ by the tavily-open community
-
-</div>
+This project is licensed under the [MIT License](LICENSE).
