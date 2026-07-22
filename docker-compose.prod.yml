@@ -1,0 +1,62 @@
+# Production overlay — Traefik + tavily.rbnetto.dev
+#
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+#
+# Requires external network: traefik_proxy (see /opt/traefik).
+
+services:
+  redis:
+    ports: !reset []
+
+  searxng:
+    ports: !reset []
+    environment:
+      - SEARXNG_BASE_URL=https://tavily.rbnetto.dev/
+      - SEARXNG_SECRET=${SEARXNG_SECRET}
+
+  app:
+    ports: !reset []
+    volumes: !override
+      - ./data:/app/data
+    networks:
+      - default
+      - traefik_proxy
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - SEARXNG_URL=http://searxng:8080
+      - SEARCH_PROVIDER=${SEARCH_PROVIDER:-router}
+      - SEARCH_ROUTE_PROVIDERS=${SEARCH_ROUTE_PROVIDERS:-local,searxng,brave}
+      - EXTERNAL_SEARCH_ENABLED=${EXTERNAL_SEARCH_ENABLED:-false}
+      - LOCAL_INDEX_ENABLED=${LOCAL_INDEX_ENABLED:-true}
+      - LOCAL_INDEX_PATH=${LOCAL_INDEX_PATH:-/app/data/searcrawl.sqlite3}
+      - BACKFILL_ENABLED=${BACKFILL_ENABLED:-true}
+      - BACKFILL_QUEUE_BACKEND=${BACKFILL_QUEUE_BACKEND:-redis}
+      - BACKFILL_REDIS_KEY_PREFIX=${BACKFILL_REDIS_KEY_PREFIX:-searcrawl:backfill}
+      - BACKFILL_CLAIM_TTL_SECONDS=${BACKFILL_CLAIM_TTL_SECONDS:-900}
+      - BACKFILL_BATCH_SIZE=${BACKFILL_BATCH_SIZE:-3}
+      - BACKFILL_WORKER_INTERVAL_SECONDS=${BACKFILL_WORKER_INTERVAL_SECONDS:-30}
+      - BACKFILL_MAX_ATTEMPTS=${BACKFILL_MAX_ATTEMPTS:-5}
+      - BACKFILL_BASE_DELAY_SECONDS=${BACKFILL_BASE_DELAY_SECONDS:-300}
+      - BACKFILL_MAX_DELAY_SECONDS=${BACKFILL_MAX_DELAY_SECONDS:-86400}
+      - READER_ENABLED=${READER_ENABLED:-false}
+      - READER_URLS=${READER_URLS:-}
+      - CRAWL_EXTRACTION_STRATEGY=${CRAWL_EXTRACTION_STRATEGY:-http_first}
+      - BROWSER_BACKEND=${BROWSER_BACKEND:-local}
+      - BROWSERLESS_WS_URL=${BROWSERLESS_WS_URL:-ws://browserless:3000}
+      - BROWSER_LOCAL_FALLBACK_ENABLED=${BROWSER_LOCAL_FALLBACK_ENABLED:-false}
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=traefik_proxy
+      - traefik.http.routers.tavily-open.rule=Host(`tavily.rbnetto.dev`)
+      - traefik.http.routers.tavily-open.entrypoints=websecure
+      - traefik.http.routers.tavily-open.tls.certresolver=letsencrypt
+      - traefik.http.services.tavily-open.loadbalancer.server.port=3000
+      - traefik.http.routers.tavily-open-http.rule=Host(`tavily.rbnetto.dev`)
+      - traefik.http.routers.tavily-open-http.entrypoints=web
+      - traefik.http.routers.tavily-open-http.middlewares=tavily-open-https-redirect
+      - traefik.http.middlewares.tavily-open-https-redirect.redirectscheme.scheme=https
+    restart: unless-stopped
+
+networks:
+  traefik_proxy:
+    external: true
