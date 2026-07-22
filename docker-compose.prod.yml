@@ -52,6 +52,8 @@ services:
       - traefik.http.routers.tavily-open.rule=Host(`tavily.rbnetto.dev`)
       - traefik.http.routers.tavily-open.entrypoints=websecure
       - traefik.http.routers.tavily-open.tls.certresolver=letsencrypt
+      - traefik.http.routers.tavily-open.middlewares=tavily-open-auth
+      - traefik.http.middlewares.tavily-open-auth.basicauth.users=${TRAEFIK_BASICAUTH_USERS}
       - traefik.http.services.tavily-open.loadbalancer.server.port=3000
       - traefik.http.routers.tavily-open-http.rule=Host(`tavily.rbnetto.dev`)
       - traefik.http.routers.tavily-open-http.entrypoints=web
